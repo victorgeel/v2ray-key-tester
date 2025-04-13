@@ -14,21 +14,18 @@ from urllib.parse import urlparse, parse_qs, unquote, unquote_plus
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # --- Configuration ---
-# IMPORTANT: Ensure these URLs are valid and potentially contain working keys.
-# Consider using the config file approach for easier management.
 SOURCE_URLS = {
-    # "key1": "DEAD_URL_REMOVED", # Remove or replace dead links
-    "key1": "https://raw.githubusercontent.com/darknessm427/V2ray-Sub-Collector/main/Sort-By-Protocol/Darkness_vmess.txt", # User added
+    "key1": "https://raw.githubusercontent.com/darknessm427/V2ray-Sub-Collector/main/Sort-By-Protocol/Darkness_vmess.txt",
     "key2": "https://raw.githubusercontent.com/SonzaiEkkusu/V2RayDumper/main/config.txt",
     "key3": "https://raw.githubusercontent.com/iboxz/free-v2ray-collector/main/main/mix",
-    "key4": "https://raw.githubusercontent.com/shabane/kamaji/master/hub/b64/vless.txt", # User added
+    "key4": "https://raw.githubusercontent.com/shabane/kamaji/master/hub/b64/vless.txt",
     "key5": "https://raw.githubusercontent.com/MrMohebi/xray-proxy-grabber-telegram/master/collected-proxies/row-url/actives.txt",
     "key6": "https://raw.githubusercontent.com/miladtahanian/V2RayCFGDumper/main/config.txt",
     "hk": "https://raw.githubusercontent.com/SoliSpirit/v2ray-configs/main/Countries/Hong_Kong.txt",
     "jp": "https://raw.githubusercontent.com/SoliSpirit/v2ray-configs/main/Countries/Japan.txt",
     "sg": "https://raw.githubusercontent.com/SoliSpirit/v2ray-configs/main/Countries/Singapore.txt",
     "us": "https://raw.githubusercontent.com/SoliSpirit/v2ray-configs/main/Countries/United_States.txt",
-    "tw": "https://raw.githubusercontent.com/coldwater-10/V2ray-Config/main/Splitted-By-Protocol/vless.txt", # User added
+    "tw": "https://raw.githubusercontent.com/coldwater-10/V2ray-Config/main/Splitted-By-Protocol/vless.txt",
     "uk": "https://raw.githubusercontent.com/SoliSpirit/v2ray-configs/main/Countries/United_Kingdom.txt",
 }
 
@@ -74,27 +71,17 @@ def download_and_extract_xray():
                 exe_name = 'xray'; extracted = False
                 for member in zf.namelist():
                     if member.endswith(exe_name) and not member.startswith('__MACOSX'):
-                        if os.path.exists(XRAY_PATH):
-                            print(f"Removing existing file at target path: {XRAY_PATH}")
-                            os.remove(XRAY_PATH)
+                        if os.path.exists(XRAY_PATH): os.remove(XRAY_PATH)
                         zf.extract(member, path="."); extracted_path = os.path.join(".", member); target_path = XRAY_PATH
-
                         if os.path.dirname(member): # If extracted into a subfolder
                             print(f"Moving extracted file from {extracted_path} to {target_path}")
                             os.rename(extracted_path, target_path)
-                            # Try to remove the empty directory after moving
-                            try:
-                                os.rmdir(os.path.join(".", os.path.dirname(member)))
-                                print(f"Removed empty source directory: {os.path.dirname(member)}")
-                            except OSError:
-                                print(f"Could not remove source directory (might not be empty): {os.path.dirname(member)}")
-                                pass # Ignore error if dir not empty or other issues
+                            try: os.rmdir(os.path.join(".", os.path.dirname(member))); print(f"Removed empty source directory: {os.path.dirname(member)}")
+                            except OSError: print(f"Could not remove source directory (might not be empty): {os.path.dirname(member)}"); pass
                         elif extracted_path != target_path: # If extracted to root but needs rename
                              print(f"Renaming extracted file from {extracted_path} to {target_path}")
                              os.rename(extracted_path, target_path)
-
-                        print(f"Extracted '{member}' successfully to '{target_path}'")
-                        extracted = True; break
+                        print(f"Extracted '{member}' successfully to '{target_path}'"); extracted = True; break
                 if not extracted: raise FileNotFoundError(f"'{exe_name}' not found within the zip file {asset_name}.")
         else: raise NotImplementedError(f"Extraction not implemented for {asset_name}")
         if not os.path.exists(XRAY_PATH): raise FileNotFoundError(f"Xray executable not found at '{XRAY_PATH}' after extraction.")
@@ -130,43 +117,18 @@ def generate_config(key_url):
     try:
         key_url = key_url.strip(); parsed_url = urlparse(key_url); protocol = parsed_url.scheme; config = None
         base_config = {"log": {"loglevel": "warning"},"inbounds": [{"port": 10808, "protocol": "socks", "settings": {"udp": False}}],"outbounds": [{"protocol": protocol, "settings": {}, "streamSettings": {}}]}
-
         if protocol == "vmess":
             try:
-                vmess_json_str = base64.b64decode(key_url[8:]).decode('utf-8')
-                vmess_params = json.loads(vmess_json_str)
+                vmess_json_str = base64.b64decode(key_url[8:]).decode('utf-8'); vmess_params = json.loads(vmess_json_str)
                 base_config["outbounds"][0]["settings"]["vnext"] = [{"address": vmess_params.get("add", ""), "port": int(vmess_params.get("port", 443)), "users": [{"id": vmess_params.get("id", ""), "alterId": int(vmess_params.get("aid", 0)), "security": vmess_params.get("scy", "auto")}]}]
                 stream_settings = {"network": vmess_params.get("net", "tcp"), "security": vmess_params.get("tls", "none")}
-                # Correctly handle TLS settings block
                 if stream_settings["security"] == "tls":
-                    stream_settings["tlsSettings"] = {
-                        "serverName": vmess_params.get("sni", vmess_params.get("host", "")),
-                        "allowInsecure": False
-                    }
-                # Correctly determine net_type AFTER tlsSettings might be added
+                    stream_settings["tlsSettings"] = {"serverName": vmess_params.get("sni", vmess_params.get("host", "")), "allowInsecure": False}
                 net_type = stream_settings["network"]
-                # Handle network specific settings
-                if net_type == "ws":
-                    stream_settings["wsSettings"] = {
-                        "path": vmess_params.get("path", "/"),
-                        "headers": {"Host": vmess_params.get("host", vmess_params.get("add", ""))}
-                    }
-                elif net_type == "tcp" and vmess_params.get("type") == "http":
-                    stream_settings["tcpSettings"] = {
-                        "header": {
-                            "type": "http",
-                            "request": {
-                                "path": [vmess_params.get("path", "/")],
-                                "headers": {"Host": vmess_params.get("host", "").split(',')}
-                             }
-                         }
-                     }
-                # Assign final stream settings
-                base_config["outbounds"][0]["streamSettings"] = stream_settings
-                config = base_config
-            except Exception as e_vmess:
-                # print(f"DEBUG: Failed parsing VMess: {e_vmess} for {key_url[:30]}")
-                return None
+                if net_type == "ws": stream_settings["wsSettings"] = {"path": vmess_params.get("path", "/"), "headers": {"Host": vmess_params.get("host", vmess_params.get("add", ""))}}
+                elif net_type == "tcp" and vmess_params.get("type") == "http": stream_settings["tcpSettings"] = {"header": {"type": "http", "request": {"path": [vmess_params.get("path", "/")], "headers": {"Host": vmess_params.get("host", "").split(',')}}}}
+                base_config["outbounds"][0]["streamSettings"] = stream_settings; config = base_config
+            except Exception: return None
         elif protocol == "vless":
             try:
                 uuid = parsed_url.username; address = parsed_url.hostname; port = int(parsed_url.port or 443); params = parse_qs(parsed_url.query)
@@ -178,11 +140,8 @@ def generate_config(key_url):
                 net_type = stream_settings["network"]
                 if net_type == "ws": stream_settings["wsSettings"] = {"path": unquote_plus(params.get('path', ['/'])[0]), "headers": {"Host": params.get('host', [address])[0]}}
                 elif net_type == "grpc": stream_settings["grpcSettings"] = {"serviceName": unquote_plus(params.get('serviceName', [''])[0])}
-                base_config["outbounds"][0]["streamSettings"] = stream_settings
-                config = base_config
-            except Exception as e_vless:
-                # print(f"DEBUG: Failed parsing VLESS: {e_vless} for {key_url[:30]}")
-                return None
+                base_config["outbounds"][0]["streamSettings"] = stream_settings; config = base_config
+            except Exception: return None
         elif protocol == "trojan":
             try:
                 password = parsed_url.username; address = parsed_url.hostname; port = int(parsed_url.port or 443); params = parse_qs(parsed_url.query)
@@ -191,46 +150,27 @@ def generate_config(key_url):
                 if stream_settings["security"] == "tls": stream_settings["tlsSettings"] = {"serverName": params.get('sni', [params.get('peer', [address])[0]])[0], "fingerprint": params.get('fp', [''])[0], "allowInsecure": False}
                 net_type = stream_settings["network"]
                 if net_type == "ws": stream_settings["wsSettings"] = {"path": unquote_plus(params.get('path', ['/'])[0]), "headers": {"Host": params.get('host', [address])[0]}}
-                base_config["outbounds"][0]["streamSettings"] = stream_settings
-                config = base_config
-            except Exception as e_trojan:
-                # print(f"DEBUG: Failed parsing Trojan: {e_trojan} for {key_url[:30]}")
-                return None
-        elif protocol == "ss": # Shadowsocks
+                base_config["outbounds"][0]["streamSettings"] = stream_settings; config = base_config
+            except Exception: return None
+        elif protocol == "ss":
              try:
-                 user_info_part = parsed_url.netloc.split('@')[0]; server_part = parsed_url.netloc.split('@')[1]
-                 address = server_part.split(':')[0]; port = int(server_part.split(':')[1])
-                 decoded_user_info = ""; padding = '=' * (-len(user_info_part) % 4)
+                 user_info_part = parsed_url.netloc.split('@')[0]; server_part = parsed_url.netloc.split('@')[1]; address = server_part.split(':')[0]; port = int(server_part.split(':')[1]); decoded_user_info = ""; padding = '=' * (-len(user_info_part) % 4);
                  try: decoded_user_info = base64.b64decode(user_info_part + padding).decode('utf-8')
                  except Exception: decoded_user_info = unquote_plus(user_info_part)
-                 # Check if decoded_user_info contains ':' before splitting
                  if ':' not in decoded_user_info: raise ValueError("Decoded SS user info lacks colon separator")
-                 method, password = decoded_user_info.split(':', 1)
-                 base_config["outbounds"][0]["settings"]["servers"] = [{"address": address, "port": port, "method": method, "password": password}]
-                 base_config["outbounds"][0]["streamSettings"]["network"] = "tcp" # Basic test assumption
-                 config = base_config
-             except Exception as e_ss:
-                 # print(f"DEBUG: Failed parsing SS: {e_ss} for {key_url[:30]}")
-                 return None
-        else:
-             # print(f"DEBUG: Unsupported protocol {protocol} for {key_url[:30]}")
-             return None # Unsupported protocol
-
-        # Final cleanup for streamSettings if it ended up empty
-        if not config["outbounds"][0]["streamSettings"]:
-             del config["outbounds"][0]["streamSettings"]
-
+                 method, password = decoded_user_info.split(':', 1); base_config["outbounds"][0]["settings"]["servers"] = [{"address": address, "port": port, "method": method, "password": password}]; base_config["outbounds"][0]["streamSettings"]["network"] = "tcp"; config = base_config
+             except Exception: return None
+        else: return None
+        if "streamSettings" in base_config["outbounds"][0] and not base_config["outbounds"][0]["streamSettings"]: del base_config["outbounds"][0]["streamSettings"]
         return json.dumps(config, indent=2) if config else None
-    except Exception as e_outer:
-        # print(f"DEBUG: Outer error generating config for {key_url[:30]}: {e_outer}")
-        return None
+    except Exception: return None
 
 # --- Key Testing (test_v2ray_key) ---
 def test_v2ray_key(key_url):
     """Tests a single V2Ray key using xray -test and logs failures."""
     config_json = generate_config(key_url)
     if not config_json:
-        # Config generation failed or protocol unsupported
+        # print(f"DEBUG: Skipping test for {key_url[:50]}... (Config generation failed)")
         return key_url, False
 
     temp_config_file = None
@@ -239,14 +179,11 @@ def test_v2ray_key(key_url):
             tf.write(config_json)
             temp_config_file = tf.name
 
-        # Try both command formats: 'xray test' and 'xray run -test'
         command_formats = [
             [XRAY_PATH, "test", "-config", temp_config_file],
             [XRAY_PATH, "run", "-test", "-config", temp_config_file]
         ]
-        is_working = False
-        process_stderr = "Unknown test error"
-        process_returncode = -1
+        is_working = False; process_stderr = "Unknown test error"; process_returncode = -1
 
         for command in command_formats:
             try:
@@ -254,34 +191,23 @@ def test_v2ray_key(key_url):
                     command, capture_output=True, text=True, timeout=TEST_TIMEOUT,
                     check=False, encoding='utf-8', errors='replace'
                 )
-                process_stderr = process.stderr.strip()
-                process_returncode = process.returncode
-
-                # If first command ('xray test') fails with 'unknown command', try the next one
+                process_stderr = process.stderr.strip(); process_returncode = process.returncode
                 if command[1] == "test" and "unknown command" in process_stderr.lower():
                     print(f"DEBUG: 'xray test' failed for {key_url[:50]}, trying 'run -test'...")
                     continue
-
                 is_working = process.returncode == 0
-                if is_working:
-                    # print(f"DEBUG: [OK] Key: {key_url[:70]}... with command {' '.join(command)}")
-                    break # Success, no need to try other format
-
+                if is_working: break
             except subprocess.TimeoutExpired:
-                process_stderr = f"Timeout ({TEST_TIMEOUT}s)"
-                print(f"DEBUG: [FAIL] {process_stderr} for key: {key_url[:70]}...")
-                is_working = False; break # Timeout is a definitive failure for this key
+                process_stderr = f"Timeout ({TEST_TIMEOUT}s)"; print(f"DEBUG: [FAIL] {process_stderr} for key: {key_url[:70]}..."); is_working = False; break
             except Exception as e:
-                process_stderr = f"Subprocess execution error: {e}"
-                print(f"DEBUG: [FAIL] {process_stderr} testing key {key_url[:70]}...")
-                is_working = False; break # Break on unexpected execution errors too
+                process_stderr = f"Subprocess execution error: {e}"; print(f"DEBUG: [FAIL] {process_stderr} testing key {key_url[:70]}..."); is_working = False; break
 
-        # Log final failure details if neither format worked or timed out/errored
         if not is_working:
             print(f"DEBUG: [FAIL] Key: {key_url[:70]}...")
             print(f"DEBUG:   Final Exit Code: {process_returncode}")
-            if process_stderr:
-                print(f"DEBUG:   Final Stderr: {process_stderr}")
+            if process_stderr: print(f"DEBUG:   Final Stderr: {process_stderr}")
+        # else:
+        #      print(f"DEBUG: [OK] Key: {key_url[:70]}...") # Uncomment to log successes too
 
         return key_url, is_working
 
@@ -301,7 +227,6 @@ def main():
     print(f"Using Xray executable at: {os.path.abspath(XRAY_PATH)}")
     os.makedirs(OUTPUT_DIR, exist_ok=True); all_keys_to_test = []; source_map = {}
     print("\n--- Fetching Keys ---")
-    # Fetching Logic with Base64 Handling
     for command, url in SOURCE_URLS.items():
         keys_from_source = []
         try:
@@ -317,7 +242,6 @@ def main():
                     else: print(f"  Decoded Base64 for {command} doesn't look like keys, treating as plain text.")
                 else: print(f"  Content for {command} doesn't look like Base64 or is too short, treating as plain text.")
             except Exception as decode_error: print(f"  Base64 decoding failed for {command} (Error: {decode_error}), treating as plain text.")
-            # Extract keys based on common prefixes
             keys_from_source = [ line.strip() for line in processed_data.splitlines() if line.strip() and any(line.strip().startswith(p) for p in ["vmess://", "vless://", "trojan://", "ss://"]) ]
             print(f"  Found {len(keys_from_source)} potential keys for {command} after processing.")
             for key in keys_from_source: all_keys_to_test.append(key); source_map[key] = command
@@ -333,21 +257,33 @@ def main():
              except Exception as e_f: print(f"Warning: Could not create empty file {output_filename}: {e_f}")
          print("Created empty output files (if possible)."); return
 
-    # Parallel Testing Logic
     working_keys_by_command = {cmd: [] for cmd in SOURCE_URLS.keys()}; tested_count = 0; start_test_time = time.time()
     print(f"\n--- Starting Tests (Workers: {MAX_WORKERS}, Timeout: {TEST_TIMEOUT}s) ---")
+    # ***** CORRECTED LOOP STRUCTURE *****
     with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
         future_to_key = {executor.submit(test_v2ray_key, key): key for key in all_keys_to_test}
         for future in as_completed(future_to_key):
-            key = future_to_key[future]; command_source = source_map.get(key); tested_count += 1
-            try: _, is_working = future.result();
-            if is_working and command_source: working_keys_by_command[command_source].append(key)
-            except Exception as e_res: print(f"Warning: Error getting result for key {key[:40]}...: {e_res}"); pass
+            # Assign variables on separate lines
+            key = future_to_key[future]
+            command_source = source_map.get(key)
+            tested_count += 1
+            try: # Try getting the result from the future
+                # Underscore used as variable name for the first element of the tuple (key_url) which is not needed here
+                _key_url_ignored, is_working = future.result() # Get the result tuple (key_url, working_status)
+                if is_working and command_source:
+                    # Correctly indented block for appending
+                    working_keys_by_command[command_source].append(key)
+            except Exception as e_res: # Handle errors getting the result
+                # Correctly indented block for except
+                print(f"Warning: Error getting result for key {key[:40]}...: {e_res}")
+                pass # Explicitly pass if we just want to ignore the error and continue
+
+            # Progress indicator is outside the try/except
             if tested_count % 200 == 0 or tested_count == len(all_keys_to_test):
                 elapsed = time.time() - start_test_time; rate = tested_count / elapsed if elapsed > 0 else 0
                 print(f"Progress: Tested {tested_count}/{len(all_keys_to_test)} keys... ({elapsed:.1f}s, {rate:.1f} keys/s)")
+    # ***** END CORRECTED LOOP STRUCTURE *****
 
-    # Results Summary and File Saving
     print("\n--- Test Results Summary ---"); total_working = 0
     for command, keys in working_keys_by_command.items():
         if command in { v for k, v in source_map.items() if v is not None}: # Check if source was processed
