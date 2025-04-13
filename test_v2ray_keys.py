@@ -44,6 +44,35 @@ def download_and_extract_xray():
     # ... (Keep the existing robust download/extract logic here) ...
     # (Code from previous answer is assumed here)
     print("Checking/Downloading Xray...")
+   # Inside download_and_extract_xray() function, after os.chmod line:
+print(f"Attempting to verify {XRAY_PATH}...")
+try:
+    # Check version
+    version_cmd = [XRAY_PATH, "version"]
+    version_process = subprocess.run(version_cmd, capture_output=True, text=True, timeout=10, check=False, encoding='utf-8', errors='replace')
+    print(f"--- XRAY VERSION ---")
+    print(f"Exit Code: {version_process.returncode}")
+    print(f"Stdout: {version_process.stdout.strip()}")
+    print(f"Stderr: {version_process.stderr.strip()}")
+    print(f"--- END XRAY VERSION ---")
+
+    # Check help output for 'test' command
+    help_cmd = [XRAY_PATH, "help"]
+    help_process = subprocess.run(help_cmd, capture_output=True, text=True, timeout=10, check=False, encoding='utf-8', errors='replace')
+    print(f"--- XRAY HELP (searching for 'test' command) ---")
+    if 'test' in help_process.stdout or 'test' in help_process.stderr:
+        print("  'test' command seems to be mentioned in help output.")
+    else:
+        print("  'test' command NOT found in help output.")
+    # print(f"Help Stdout:\n{help_process.stdout.strip()}") # Uncomment to see full help
+    print(f"--- END XRAY HELP ---")
+
+except Exception as verify_e:
+    print(f"ERROR: Could not verify Xray after download/extract: {verify_e}")
+
+return True # Assuming download/extract itself didn't fail earlier
+# ... rest of the function or original return statement ...
+
     try:
         # ... (API fetch, asset determination logic) ...
         api_url = "https://api.github.com/repos/XTLS/Xray-core/releases/latest"
