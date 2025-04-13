@@ -14,10 +14,8 @@ from urllib.parse import urlparse, parse_qs, unquote, unquote_plus
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # --- Configuration ---
-# IMPORTANT: Ensure these URLs are valid and contain potentially working keys.
-# Consider using the config file approach suggested earlier for easier management.
 SOURCE_URLS = {
-    # "key1": "DEAD_URL_REMOVED", # Example: Remove or replace dead links
+    # "key1": "DEAD_URL_REMOVED", # Remove or replace dead links like the FRDYAK one
     "key1": "https://raw.githubusercontent.com/darknessm427/V2ray-Sub-Collector/main/Sort-By-Protocol/Darkness_vmess.txt", # User added
     "key2": "https://raw.githubusercontent.com/SonzaiEkkusu/V2RayDumper/main/config.txt",
     "key3": "https://raw.githubusercontent.com/iboxz/free-v2ray-collector/main/main/mix",
@@ -33,54 +31,24 @@ SOURCE_URLS = {
 }
 
 OUTPUT_DIR = "output"
-XRAY_PATH = "./xray"    # Relative path to xray executable in the runner
+XRAY_PATH = "./xray"
 MAX_WORKERS = 15
 REQUEST_TIMEOUT = 15
-TEST_TIMEOUT = 20       # Slightly increase test timeout
+TEST_TIMEOUT = 20
 
-# --- Xray Installation (No changes needed from previous version) ---
+# --- Xray Installation ---
 def download_and_extract_xray():
-    # Inside download_and_extract_xray() function, after os.chmod line:
-print(f"Attempting to verify {XRAY_PATH}...")
-try:
-    # Check version
-    version_cmd = [XRAY_PATH, "version"]
-    version_process = subprocess.run(version_cmd, capture_output=True, text=True, timeout=10, check=False, encoding='utf-8', errors='replace')
-    print(f"--- XRAY VERSION ---")
-    print(f"Exit Code: {version_process.returncode}")
-    print(f"Stdout: {version_process.stdout.strip()}")
-    print(f"Stderr: {version_process.stderr.strip()}")
-    print(f"--- END XRAY VERSION ---")
-
-    # Check help output for 'test' command
-    help_cmd = [XRAY_PATH, "help"]
-    help_process = subprocess.run(help_cmd, capture_output=True, text=True, timeout=10, check=False, encoding='utf-8', errors='replace')
-    print(f"--- XRAY HELP (searching for 'test' command) ---")
-    if 'test' in help_process.stdout or 'test' in help_process.stderr:
-        print("  'test' command seems to be mentioned in help output.")
-    else:
-        print("  'test' command NOT found in help output.")
-    # print(f"Help Stdout:\n{help_process.stdout.strip()}") # Uncomment to see full help
-    print(f"--- END XRAY HELP ---")
-
-except Exception as verify_e:
-    print(f"ERROR: Could not verify Xray after download/extract: {verify_e}")
-
-return True # Assuming download/extract itself didn't fail earlier
-# ... rest of the function or original return statement ...
-
     """Downloads and extracts the latest Xray core binary."""
-    # ... (Keep the existing robust download/extract logic here) ...
-    # (Code from previous answer is assumed here)
     print("Checking/Downloading Xray...")
     try:
-        # ... (API fetch, asset determination logic) ...
         api_url = "https://api.github.com/repos/XTLS/Xray-core/releases/latest"
-        response = requests.get(api_url, timeout=REQUEST_TIMEOUT)
+        # Add headers to avoid potential rate limiting from GitHub API
+        headers = {'Accept': 'application/vnd.github.v3+json'}
+        response = requests.get(api_url, timeout=REQUEST_TIMEOUT, headers=headers)
         response.raise_for_status()
         release_info = response.json()
         tag_name = release_info['tag_name']
-        print(f"Latest Xray version: {tag_name}")
+        print(f"Latest Xray version tag: {tag_name}")
 
         system = platform.system().lower()
         machine = platform.machine().lower()
@@ -93,7 +61,7 @@ return True # Assuming download/extract itself didn't fail earlier
             if asset['name'] == asset_name:
                 asset_url = asset['browser_download_url']
                 break
-        if not asset_url: raise ValueError(f"Could not find asset '{asset_name}'")
+        if not asset_url: raise ValueError(f"Could not find asset '{asset_name}' in release {tag_name}")
 
         print(f"Downloading {asset_url}...")
         download_response = requests.get(asset_url, stream=True, timeout=90)
@@ -106,56 +74,88 @@ return True # Assuming download/extract itself didn't fail earlier
                 extracted = False
                 for member in zf.namelist():
                     if member.endswith(exe_name) and not member.startswith('__MACOSX'):
+                        # Ensure target path is clear before extraction/rename
+                        if os.path.exists(XRAY_PATH):
+                            print(f"Removing existing file at target path: {XRAY_PATH}")
+                            os.remove(XRAY_PATH)
+
                         zf.extract(member, path=".")
                         extracted_path = os.path.join(".", member)
-                        target_path = XRAY_PATH
-                        if os.path.dirname(member): # If extracted into a subfolder
-                            if os.path.exists(target_path): os.remove(target_path) # Remove existing if any
-                            os.rename(extracted_path, target_path)
-                            try: os.rmdir(os.path.join(".", os.path.dirname(member)))
-                            except OSError: pass
-                        elif extracted_path != target_path: # If extracted to root but needs rename
-                             if os.path.exists(target_path): os.remove(target_path)
-                             os.rename(extracted_path, target_path)
-                        elif not os.path.exists(target_path): # If extracted with correct name but check existence
-                             # This case might not happen if extract worked, but as safety
-                             os.rename(extracted_path, target_path)
+                        target_path = XRAY_PATH # Should be './xray'
 
-                        print(f"Extracted '{member}' to '{target_path}'")
+                        if os.path.dirname(member): # If extracted into a subfolder
+                            print(f"Moving extracted file from {extracted_path} to {target_path}")
+                            os.rename(extracted_path, target_path)
+                            try:
+                                os.rmdir(os.path.join(".", os.path.dirname(member)))
+                            except OSError: pass # Ignore if dir not empty
+                        elif extracted_path != target_path: # If extracted to root but needs rename
+                             print(f"Renaming extracted file from {extracted_path} to {target_path}")
+                             os.rename(extracted_path, target_path)
+                        # If extracted directly with correct name, it should already be at target_path
+
+                        print(f"Extracted '{member}' successfully to '{target_path}'")
                         extracted = True
                         break
-                if not extracted: raise FileNotFoundError(f"'{exe_name}' not found within the zip file.")
-        else: raise NotImplementedError(f"Extraction not implemented for {asset_name}")
-
-        if system != 'windows' and os.path.exists(XRAY_PATH):
-            st = os.stat(XRAY_PATH)
-            os.chmod(XRAY_PATH, st.st_mode | stat.S_IEXEC)
-            print(f"Made '{XRAY_PATH}' executable.")
+                if not extracted: raise FileNotFoundError(f"'{exe_name}' not found within the zip file {asset_name}.")
         else:
-            if not os.path.exists(XRAY_PATH):
-                 raise FileNotFoundError(f"Xray executable not found at expected path '{XRAY_PATH}' after extraction attempt.")
+            raise NotImplementedError(f"Extraction not implemented for {asset_name}")
+
+        # --- Verification and Debugging Code ---
+        if not os.path.exists(XRAY_PATH):
+             raise FileNotFoundError(f"Xray executable not found at expected path '{XRAY_PATH}' after extraction attempt.")
+
+        # Make executable
+        if system != 'windows':
+            try:
+                st = os.stat(XRAY_PATH)
+                os.chmod(XRAY_PATH, st.st_mode | stat.S_IEXEC)
+                print(f"Made '{XRAY_PATH}' executable.")
+            except Exception as chmod_e:
+                 print(f"ERROR: Failed to make '{XRAY_PATH}' executable: {chmod_e}")
+                 return False # Cannot proceed if not executable
+
+        # *** Insert Debugging Code Here (Correctly Indented) ***
+        print(f"Attempting to verify {XRAY_PATH}...")
+        try:
+            # Check version
+            version_cmd = [XRAY_PATH, "version"]
+            version_process = subprocess.run(version_cmd, capture_output=True, text=True, timeout=10, check=False, encoding='utf-8', errors='replace')
+            print(f"--- XRAY VERSION ---")
+            print(f"Exit Code: {version_process.returncode}")
+            print(f"Stdout: {version_process.stdout.strip()}")
+            print(f"Stderr: {version_process.stderr.strip()}")
+            print(f"--- END XRAY VERSION ---")
+
+            # Check help output for 'test' command
+            help_cmd = [XRAY_PATH, "help"]
+            help_process = subprocess.run(help_cmd, capture_output=True, text=True, timeout=10, check=False, encoding='utf-8', errors='replace')
+            print(f"--- XRAY HELP (searching for 'test' command) ---")
+            help_output = help_process.stdout + help_process.stderr # Combine both streams for search
+            if 'test' in help_output: # Check if 'test' appears anywhere
+                print("  'test' command seems to be mentioned in help output.")
+            else:
+                print("  'test' command NOT found in help output.")
+            # print(f"Help Combined Output:\n{help_output.strip()}") # Uncomment for full help
+            print(f"--- END XRAY HELP ---")
+
+        except Exception as verify_e:
+            print(f"ERROR: Could not run Xray for verification: {verify_e}")
+            return False # Indicate failure if verification fails
 
         print("Xray download and extraction complete.")
-        # Verify Xray version after extraction
-        try:
-             version_process = subprocess.run([XRAY_PATH, "version"], capture_output=True, text=True, timeout=5, check=True)
-             print(f"Xray version check: {version_process.stdout.strip()}")
-        except Exception as ve:
-             print(f"Warning: Could not verify Xray version after download: {ve}")
+        return True # Success
 
-        return True
     except Exception as e:
-        print(f"Error downloading/extracting Xray: {e}")
-        if os.path.exists(XRAY_PATH):
-            print("Using existing Xray binary.")
-            if platform.system() != 'windows':
-                 st = os.stat(XRAY_PATH)
-                 os.chmod(XRAY_PATH, st.st_mode | stat.S_IEXEC)
-            return True
-        return False
+        print(f"Error in download_and_extract_xray function: {e}")
+        # Check if binary exists despite error
+        if os.path.exists(XRAY_PATH) and os.access(XRAY_PATH, os.X_OK):
+            print("Using existing Xray binary despite error during download/extract attempt.")
+            return True # Allow proceeding with existing binary if executable
+        return False # Failed
 
 
-# --- Enhanced V2Ray Config Generation (No changes needed from previous version) ---
+# --- Enhanced V2Ray Config Generation ---
 def generate_config(key_url):
     """Generates a minimal Xray JSON config for testing various key types."""
     # ... (Keep the enhanced generate_config function from the previous answer) ...
@@ -170,14 +170,12 @@ def generate_config(key_url):
             "inbounds": [{"port": 10808, "protocol": "socks", "settings": {"udp": False}}],
             "outbounds": [{"protocol": protocol, "settings": {}, "streamSettings": {}}]
         }
+        # ... (Include the full parsing logic for vmess, vless, trojan, ss from previous answer here) ...
         if protocol == "vmess":
             try:
                 vmess_json_str = base64.b64decode(key_url[8:]).decode('utf-8')
                 vmess_params = json.loads(vmess_json_str)
-                base_config["outbounds"][0]["settings"]["vnext"] = [{
-                    "address": vmess_params.get("add", ""), "port": int(vmess_params.get("port", 443)),
-                    "users": [{"id": vmess_params.get("id", ""), "alterId": int(vmess_params.get("aid", 0)), "security": vmess_params.get("scy", "auto")}]
-                }]
+                base_config["outbounds"][0]["settings"]["vnext"] = [{"address": vmess_params.get("add", ""), "port": int(vmess_params.get("port", 443)), "users": [{"id": vmess_params.get("id", ""), "alterId": int(vmess_params.get("aid", 0)), "security": vmess_params.get("scy", "auto")}]}]
                 stream_settings = {"network": vmess_params.get("net", "tcp"), "security": vmess_params.get("tls", "none")}
                 if stream_settings["security"] == "tls": stream_settings["tlsSettings"] = {"serverName": vmess_params.get("sni", vmess_params.get("host", "")), "allowInsecure": False}
                 net_type = stream_settings["network"]
@@ -234,90 +232,94 @@ def test_v2ray_key(key_url):
     """Tests a single V2Ray key using xray -test and logs failures."""
     config_json = generate_config(key_url)
     if not config_json:
-        print(f"DEBUG: Skipping test for {key_url[:50]}... (Config generation failed)")
-        return key_url, False
+        # print(f"DEBUG: Skipping test for {key_url[:50]}... (Config generation failed)")
+        return key_url, False # Return False if config fails
 
     temp_config_file = None
     try:
-        # Create a temporary file to store the config
         with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix=".json", encoding='utf-8') as tf:
             tf.write(config_json)
             temp_config_file = tf.name
-        # print(f"DEBUG: Testing Key: {key_url[:50]}... with config: {temp_config_file}")
 
-        # Run xray -test command
-        command = [XRAY_PATH, "test", "-config", temp_config_file]
-        process = subprocess.run(
-            command,
-            capture_output=True,
-            text=True,
-            timeout=TEST_TIMEOUT,
-            check=False, # Do not raise error on non-zero exit
-            encoding='utf-8', # Specify encoding
-            errors='replace' # Handle potential decoding errors in output
-        )
+        # ***** TRY BOTH COMMAND FORMATS *****
+        command_formats = [
+            [XRAY_PATH, "test", "-config", temp_config_file],
+            [XRAY_PATH, "run", "-test", "-config", temp_config_file]
+        ]
 
-        is_working = process.returncode == 0
+        is_working = False
+        process_stderr = "Unknown test error" # Default error
+        process_returncode = -1 # Default error code
 
-        # ***** ENHANCED LOGGING FOR FAILURES *****
+        for command in command_formats:
+            # print(f"DEBUG: Attempting command: {' '.join(command)}") # Optional: Log command try
+            try:
+                process = subprocess.run(
+                    command,
+                    capture_output=True, text=True, timeout=TEST_TIMEOUT,
+                    check=False, encoding='utf-8', errors='replace'
+                )
+                process_stderr = process.stderr.strip()
+                process_returncode = process.returncode
+
+                # Check for "unknown command" specifically for the first format
+                if command[1] == "test" and "unknown command" in process_stderr.lower():
+                    # print(f"DEBUG: 'xray test' failed with unknown command, trying 'xray run -test'...")
+                    continue # Try the next command format
+
+                is_working = process.returncode == 0
+                if is_working:
+                    # print(f"DEBUG: [OK] Key: {key_url[:70]}... with command {' '.join(command)}")
+                    break # Stop trying commands if one works
+
+            except subprocess.TimeoutExpired:
+                process_stderr = f"Timeout ({TEST_TIMEOUT}s)"
+                print(f"DEBUG: [FAIL] {process_stderr} for key: {key_url[:70]}...")
+                is_working = False
+                break # Timeout likely means connection failed, no need to try other cmd format
+            except Exception as e:
+                process_stderr = f"Subprocess execution error: {e}"
+                print(f"DEBUG: [FAIL] {process_stderr} testing key {key_url[:70]}...")
+                is_working = False
+                # Might want to break here too, or let it try the other command if it was an execution error
+                break
+
+        # Log failure details if neither command format worked
         if not is_working:
             print(f"DEBUG: [FAIL] Key: {key_url[:70]}...")
-            print(f"DEBUG:   Exit Code: {process.returncode}")
-            # Log stderr, which often contains the reason for failure
-            if process.stderr:
-                print(f"DEBUG:   Stderr: {process.stderr.strip()}")
-            # Log stdout as well, might contain info sometimes
-            # if process.stdout:
-            #     print(f"DEBUG:   Stdout: {process.stdout.strip()}")
-        # else:
-        #     print(f"DEBUG: [OK] Key: {key_url[:70]}...") # Optional: log successes too
+            print(f"DEBUG:   Final Exit Code: {process_returncode}")
+            if process_stderr:
+                print(f"DEBUG:   Final Stderr: {process_stderr}")
 
         return key_url, is_working
 
-    except subprocess.TimeoutExpired:
-        print(f"DEBUG: [FAIL] Timeout ({TEST_TIMEOUT}s) for key: {key_url[:70]}...")
-        return key_url, False
-    except Exception as e:
-        print(f"DEBUG: [FAIL] Error testing key {key_url[:70]}...: {e}")
+    except Exception as e: # Catch errors in tempfile creation etc.
+        print(f"DEBUG: [FAIL] Outer Error testing key {key_url[:70]}...: {e}")
         return key_url, False
     finally:
-        # Clean up temporary config file
         if temp_config_file and os.path.exists(temp_config_file):
-            try:
-                os.remove(temp_config_file)
-            except Exception as e_rem:
-                 print(f"Warning: Failed to remove temp config file {temp_config_file}: {e_rem}")
+            try: os.remove(temp_config_file)
+            except Exception as e_rem: print(f"Warning: Failed to remove temp config file {temp_config_file}: {e_rem}")
 
-# --- Main Execution (No major changes needed from previous version) ---
+
+# --- Main Execution ---
 def main():
-    start_time = time.time()
-    print("Starting V2Ray Key Testing Script...")
-
-    if not download_and_extract_xray():
-        print("FATAL: Failed to get Xray binary. Aborting.")
-        return
-    if not os.path.exists(XRAY_PATH) or not os.access(XRAY_PATH, os.X_OK):
-        print(f"FATAL: Xray executable not found or not executable at {XRAY_PATH}. Aborting.")
-        return
+    # ... (Keep the main function logic: start_time, download_and_extract_xray check, etc.) ...
+    start_time = time.time(); print("Starting V2Ray Key Testing Script...")
+    if not download_and_extract_xray(): print("FATAL: Failed to get/verify Xray binary. Aborting."); return
+    if not os.path.exists(XRAY_PATH) or not os.access(XRAY_PATH, os.X_OK): print(f"FATAL: Xray executable not found or not executable at {XRAY_PATH}. Aborting."); return
     print(f"Using Xray executable at: {os.path.abspath(XRAY_PATH)}")
-
     os.makedirs(OUTPUT_DIR, exist_ok=True)
-
-    all_keys_to_test = []
-    source_map = {}
-
+    all_keys_to_test = []; source_map = {}
     print("\n--- Fetching Keys ---")
-    # --- Fetching Logic with Base64 Handling (Keep from previous version) ---
+    # ... (Keep the fetching logic with Base64 handling) ...
     for command, url in SOURCE_URLS.items():
         keys_from_source = []
         try:
             print(f"Fetching {command} from {url}...")
-            response = requests.get(url, timeout=REQUEST_TIMEOUT, headers={'User-Agent': 'Mozilla/5.0'}) # Add User-Agent
-            response.raise_for_status() # Raise error for bad status codes like 404
-            raw_data = response.text
-            processed_data = raw_data
-
-            # --- Base64 Detection/Decoding ---
+            response = requests.get(url, timeout=REQUEST_TIMEOUT, headers={'User-Agent': 'Mozilla/5.0'})
+            response.raise_for_status()
+            raw_data = response.text; processed_data = raw_data
             try:
                 potential_b64 = raw_data.replace('\n', '').replace('\r', '').strip()
                 if len(potential_b64) > 20 and len(potential_b64) % 4 == 0 and all(c in 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=' for c in potential_b64):
@@ -326,27 +328,14 @@ def main():
                     if any(prefix in decoded_string for prefix in ["vmess://", "vless://", "trojan://", "ss://"]):
                         print(f"  Detected Base64 content for {command}, using decoded data.")
                         processed_data = decoded_string
-                    else:
-                        print(f"  Decoded Base64 for {command} doesn't look like keys, treating as plain text.")
-                else:
-                     print(f"  Content for {command} doesn't look like Base64 or is too short, treating as plain text.")
-            except Exception as decode_error:
-                print(f"  Base64 decoding failed for {command} (Error: {decode_error}), treating as plain text.")
-
-            # --- Extract Keys ---
-            keys_from_source = [
-                line.strip() for line in processed_data.splitlines()
-                if line.strip() and any(line.strip().startswith(p) for p in ["vmess://", "vless://", "trojan://", "ss://"])
-            ]
+                    else: print(f"  Decoded Base64 for {command} doesn't look like keys, treating as plain text.")
+                else: print(f"  Content for {command} doesn't look like Base64 or is too short, treating as plain text.")
+            except Exception as decode_error: print(f"  Base64 decoding failed for {command} (Error: {decode_error}), treating as plain text.")
+            keys_from_source = [ line.strip() for line in processed_data.splitlines() if line.strip() and any(line.strip().startswith(p) for p in ["vmess://", "vless://", "trojan://", "ss://"]) ]
             print(f"  Found {len(keys_from_source)} potential keys for {command} after processing.")
-            for key in keys_from_source:
-                 all_keys_to_test.append(key)
-                 source_map[key] = command
-        except requests.exceptions.RequestException as e:
-            print(f"ERROR: Failed to fetch keys for {command} from {url}: {e}") # More specific error
-        except Exception as e:
-            print(f"ERROR: Failed to process source {command} from {url}: {e}")
-
+            for key in keys_from_source: all_keys_to_test.append(key); source_map[key] = command
+        except requests.exceptions.RequestException as e: print(f"ERROR: Failed to fetch keys for {command} from {url}: {e}")
+        except Exception as e: print(f"ERROR: Failed to process source {command} from {url}: {e}")
 
     print(f"\nTotal potential keys to test: {len(all_keys_to_test)}")
     if not all_keys_to_test:
@@ -358,62 +347,42 @@ def main():
          print("Created empty output files (if possible).")
          return
 
-    # --- Parallel Testing Logic (Keep from previous version) ---
+    # ... (Keep the parallel testing logic, results summary, file saving) ...
     working_keys_by_command = {cmd: [] for cmd in SOURCE_URLS.keys()}
-    tested_count = 0
-    start_test_time = time.time()
+    tested_count = 0; start_test_time = time.time()
     print(f"\n--- Starting Tests (Workers: {MAX_WORKERS}, Timeout: {TEST_TIMEOUT}s) ---")
     with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
         future_to_key = {executor.submit(test_v2ray_key, key): key for key in all_keys_to_test}
         for future in as_completed(future_to_key):
-            key = future_to_key[future]
-            command_source = source_map.get(key)
-            tested_count += 1
+            key = future_to_key[future]; command_source = source_map.get(key); tested_count += 1
             try:
                 _, is_working = future.result()
-                if is_working and command_source:
-                    working_keys_by_command[command_source].append(key)
-            except Exception as e_res:
-                print(f"Warning: Error getting result for key {key[:40]}...: {e_res}")
-                pass
-            # Progress indicator less frequent
+                if is_working and command_source: working_keys_by_command[command_source].append(key)
+            except Exception as e_res: print(f"Warning: Error getting result for key {key[:40]}...: {e_res}"); pass
             if tested_count % 200 == 0 or tested_count == len(all_keys_to_test):
-                elapsed = time.time() - start_test_time
-                rate = tested_count / elapsed if elapsed > 0 else 0
+                elapsed = time.time() - start_test_time; rate = tested_count / elapsed if elapsed > 0 else 0
                 print(f"Progress: Tested {tested_count}/{len(all_keys_to_test)} keys... ({elapsed:.1f}s, {rate:.1f} keys/s)")
-
-    # --- Results and Saving Logic (Keep from previous version) ---
     print("\n--- Test Results Summary ---")
     total_working = 0
     for command, keys in working_keys_by_command.items():
-        # Only print commands that were actually fetched from (handle 404s etc)
         if command in { v for k, v in source_map.items() if v is not None}:
              print(f"  {command}: {len(keys)} working keys found.")
-             total_working += len(keys)
-             output_filename = os.path.join(OUTPUT_DIR, f"working_{command.lstrip('/')}.txt")
+             total_working += len(keys); output_filename = os.path.join(OUTPUT_DIR, f"working_{command.lstrip('/')}.txt")
              try:
-                 keys.sort()
+                 keys.sort();
                  with open(output_filename, 'w', encoding='utf-8') as f:
-                     for key in keys:
-                         f.write(key + '\n')
-                 # print(f"    Saved to {output_filename}")
-             except Exception as e_w:
-                  print(f"    ERROR writing file {output_filename}: {e_w}")
-
-    # Create empty files for commands that had no working keys or failed fetch
+                     for key in keys: f.write(key + '\n')
+             except Exception as e_w: print(f"    ERROR writing file {output_filename}: {e_w}")
     for command in SOURCE_URLS.keys():
          output_filename = os.path.join(OUTPUT_DIR, f"working_{command.lstrip('/')}.txt")
          if not os.path.exists(output_filename):
-              try:
-                  open(output_filename, 'w').close()
-                  print(f"  {command}: 0 working keys found (created empty file).")
+              try: open(output_filename, 'w').close(); print(f"  {command}: 0 working keys found (created empty file).")
               except Exception as e_f: print(f"Warning: Could not create empty file {output_filename}: {e_f}")
-
-
     end_time = time.time()
     print(f"\nTotal working keys found and saved across all sources: {total_working}")
     print(f"Script finished in {end_time - start_time:.2f} seconds.")
     print("----------------------------------------")
+
 
 if __name__ == "__main__":
     main()
