@@ -19,7 +19,7 @@ jobs:
           python-version: '3.10' # Or newer version
 
       - name: Install Python dependencies
-        run: pip install -r scripts/requirements.txt
+        run: pip install -r requirements.txt
 
       - name: Run V2Ray Key Tester Script
         run: python scripts/test_v2ray_keys.py
