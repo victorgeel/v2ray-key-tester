@@ -1,13 +1,70 @@
-# Inside test-and-upload job:
-steps:
-  # ... (checkout, setup-python steps) ...
+name: Test V2Ray Keys and Upload to R2
 
-  - name: Install Python dependencies
-    run: pip install -r requirements.txt # Assuming requirements.txt is in root
+on:
+  schedule:
+    # Runs every hour (adjust as needed)
+    - cron: '0 * * * *'
+  workflow_dispatch: # Allows manual triggering
 
-  - name: Run V2Ray Key Tester Script
-    env:
-      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }} # <--- Add this env block
-    run: python test_v2ray_keys.py # Assuming .py is in root
+jobs:
+  test-and-upload:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
-  # ... (rclone steps) ...
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10' # Or newer version
+
+      - name: Install Python dependencies
+        # Assuming requirements.txt is now in the root directory based on previous fix
+        run: pip install -r requirements.txt
+
+      - name: Run V2Ray Key Tester Script
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }} # Use built-in token
+        # Assuming test_v2ray_keys.py is now in the root directory based on previous fix
+        run: python test_v2ray_keys.py
+
+      - name: Install rclone # Tool to interact with R2
+        run: |
+          sudo apt-get update && sudo apt-get install -y rclone
+
+      - name: Configure rclone for Cloudflare R2
+        env:
+          # Get credentials from GitHub Secrets
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_ENDPOINT: ${{ secrets.R2_ENDPOINT }}
+          R2_BUCKET_NAME: ${{ secrets.R2_BUCKET_NAME }}
+        run: |
+          rclone config create R2 s3 \
+            provider=Cloudflare \
+            access_key_id=$R2_ACCESS_KEY_ID \
+            secret_access_key=$R2_SECRET_ACCESS_KEY \
+            endpoint=$R2_ENDPOINT \
+            acl=public-read # Make uploaded files public automatically
+
+      - name: Upload working key files to R2 Bucket
+        env:
+          R2_BUCKET_NAME: ${{ secrets.R2_BUCKET_NAME }}
+        run: |
+          # Sync the output directory (created by python script) to the root of the R2 bucket
+          # Ensure the python script actually creates the ./output directory
+          if [ -d "./output" ]; then
+            echo "Output directory found. Syncing to R2..."
+            rclone sync ./output R2:${R2_BUCKET_NAME}/ --progress --verbose
+          else
+            echo "Output directory not found. Skipping R2 sync."
+            # Optionally exit with error: exit 1
+          fi
+
+      - name: Clean up output directory (optional)
+        # Only run if output directory exists
+        run: |
+          if [ -d "./output" ]; then
+            rm -rf ./output
+          fi
+          
