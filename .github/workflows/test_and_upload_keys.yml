@@ -22,7 +22,7 @@ jobs:
         run: pip install -r requirements.txt
 
       - name: Run V2Ray Key Tester Script
-        run: python scripts/test_v2ray_keys.py
+        run: python test_v2ray_keys.py
 
       - name: Install rclone # Tool to interact with R2
         run: |
