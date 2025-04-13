@@ -41,25 +41,20 @@ def download_and_extract_xray():
     print("Checking/Downloading Xray...")
     try:
         api_url = "https://api.github.com/repos/XTLS/Xray-core/releases/latest"
-
-        # ***** Add GitHub Token Authentication *****
-        github_token = os.environ.get('GH_TOKEN') # Read token from environment variable
+        github_token = os.environ.get('GH_TOKEN')
         headers = {'Accept': 'application/vnd.github.v3+json'}
         if github_token:
             print("Using GitHub token for API request to avoid rate limits.")
             headers['Authorization'] = f'token {github_token}'
         else:
             print("Warning: GitHub token (GH_TOKEN) not found in environment. Making unauthenticated API request (may hit rate limits).")
-        # ***** End Add GitHub Token Authentication *****
 
-        # Make the API request with headers
         response = requests.get(api_url, timeout=REQUEST_TIMEOUT, headers=headers)
-        response.raise_for_status() # Check for errors like 403 Rate Limit
+        response.raise_for_status()
         release_info = response.json()
         tag_name = release_info['tag_name']
         print(f"Latest Xray version tag: {tag_name}")
 
-        # ... (rest of the download and extract logic remains the same as the corrected version from the previous answer) ...
         system = platform.system().lower(); machine = platform.machine().lower()
         asset_name = "Xray-linux-64.zip"
         if system == 'linux' and machine == 'aarch64': asset_name = "Xray-linux-arm64-v8a.zip"
@@ -69,17 +64,36 @@ def download_and_extract_xray():
         if not asset_url: raise ValueError(f"Could not find asset '{asset_name}'")
         print(f"Downloading {asset_url}...")
         download_response = requests.get(asset_url, stream=True, timeout=90); download_response.raise_for_status()
+
         print("Extracting Xray...")
         if asset_name.endswith(".zip"):
             with zipfile.ZipFile(io.BytesIO(download_response.content)) as zf:
                 exe_name = 'xray'; extracted = False
                 for member in zf.namelist():
                     if member.endswith(exe_name) and not member.startswith('__MACOSX'):
-                        if os.path.exists(XRAY_PATH): os.remove(XRAY_PATH)
+                        if os.path.exists(XRAY_PATH):
+                            print(f"Removing existing file at target path: {XRAY_PATH}")
+                            os.remove(XRAY_PATH)
                         zf.extract(member, path="."); extracted_path = os.path.join(".", member); target_path = XRAY_PATH
-                        if os.path.dirname(member): os.rename(extracted_path, target_path); try: os.rmdir(os.path.join(".", os.path.dirname(member))); except OSError: pass
-                        elif extracted_path != target_path: os.rename(extracted_path, target_path)
-                        print(f"Extracted '{member}' successfully to '{target_path}'"); extracted = True; break
+
+                        # ***** CORRECTED SECTION *****
+                        if os.path.dirname(member): # If extracted into a subfolder
+                            print(f"Moving extracted file from {extracted_path} to {target_path}")
+                            os.rename(extracted_path, target_path)
+                            # Try to remove the empty directory after moving
+                            try:
+                                os.rmdir(os.path.join(".", os.path.dirname(member)))
+                                print(f"Removed empty source directory: {os.path.dirname(member)}")
+                            except OSError:
+                                print(f"Could not remove source directory (might not be empty): {os.path.dirname(member)}")
+                                pass # Ignore error if dir not empty or other issues
+                        # ***** END CORRECTED SECTION *****
+                        elif extracted_path != target_path: # If extracted to root but needs rename
+                             print(f"Renaming extracted file from {extracted_path} to {target_path}")
+                             os.rename(extracted_path, target_path)
+
+                        print(f"Extracted '{member}' successfully to '{target_path}'")
+                        extracted = True; break
                 if not extracted: raise FileNotFoundError(f"'{exe_name}' not found within the zip file {asset_name}.")
         else: raise NotImplementedError(f"Extraction not implemented for {asset_name}")
         if not os.path.exists(XRAY_PATH): raise FileNotFoundError(f"Xray executable not found at '{XRAY_PATH}' after extraction.")
@@ -87,13 +101,13 @@ def download_and_extract_xray():
             try: st = os.stat(XRAY_PATH); os.chmod(XRAY_PATH, st.st_mode | stat.S_IEXEC); print(f"Made '{XRAY_PATH}' executable.")
             except Exception as chmod_e: print(f"ERROR: Failed to make '{XRAY_PATH}' executable: {chmod_e}"); return False
 
-        # --- Verification (Keep this part) ---
+        # --- Verification ---
         print(f"Attempting to verify {XRAY_PATH}...")
         try:
             version_cmd = [XRAY_PATH, "version"]
             version_process = subprocess.run(version_cmd, capture_output=True, text=True, timeout=10, check=False, encoding='utf-8', errors='replace')
             print(f"--- XRAY VERSION ---"); print(f"Exit Code: {version_process.returncode}"); print(f"Stdout: {version_process.stdout.strip()}"); print(f"Stderr: {version_process.stderr.strip()}"); print(f"--- END XRAY VERSION ---")
-            if version_process.returncode != 0: print("Warning: Xray version command failed!"); # return False # Decide if this is fatal
+            if version_process.returncode != 0: print("Warning: Xray version command failed!")
 
             help_cmd = [XRAY_PATH, "help"]
             help_process = subprocess.run(help_cmd, capture_output=True, text=True, timeout=10, check=False, encoding='utf-8', errors='replace')
@@ -106,20 +120,8 @@ def download_and_extract_xray():
         print("Xray download and extraction complete.")
         return True # Success
 
-    # Catch specific RequestException for network/403 errors
-    except requests.exceptions.RequestException as req_e:
-         print(f"ERROR: Failed GitHub API request: {req_e}")
-         # Check if binary exists despite error
-         if os.path.exists(XRAY_PATH) and os.access(XRAY_PATH, os.X_OK):
-             print("Using existing Xray binary due to API request failure.")
-             return True
-         return False # Failed to get binary
-    except Exception as e:
-        print(f"Error in download_and_extract_xray function: {e}")
-        if os.path.exists(XRAY_PATH) and os.access(XRAY_PATH, os.X_OK):
-            print("Using existing Xray binary despite error.")
-            return True
-        return False # Failed
+    except requests.exceptions.RequestException as req_e: print(f"ERROR: Failed GitHub API request: {req_e}"); return False
+    except Exception as e: print(f"Error in download_and_extract_xray function: {e}"); return False
 
 # --- Config Generation (generate_config) ---
 def generate_config(key_url):
@@ -157,7 +159,6 @@ def generate_config(key_url):
         return json.dumps(config, indent=2) if config else None
     except Exception: return None
 
-
 # --- Key Testing (test_v2ray_key) ---
 def test_v2ray_key(key_url):
     # ... (Keep the same function with Debug Logging and trying both command formats) ...
@@ -172,9 +173,9 @@ def test_v2ray_key(key_url):
             try:
                 process = subprocess.run(command,capture_output=True, text=True, timeout=TEST_TIMEOUT, check=False, encoding='utf-8', errors='replace')
                 process_stderr = process.stderr.strip(); process_returncode = process.returncode
-                if command[1] == "test" and "unknown command" in process_stderr.lower(): continue
+                if command[1] == "test" and "unknown command" in process_stderr.lower(): continue # Try next command if first fails with 'unknown'
                 is_working = process.returncode == 0
-                if is_working: break
+                if is_working: break # Stop if successful
             except subprocess.TimeoutExpired: process_stderr = f"Timeout ({TEST_TIMEOUT}s)"; print(f"DEBUG: [FAIL] {process_stderr} for key: {key_url[:70]}..."); is_working = False; break
             except Exception as e: process_stderr = f"Subprocess execution error: {e}"; print(f"DEBUG: [FAIL] {process_stderr} testing key {key_url[:70]}..."); is_working = False; break
         if not is_working:
@@ -187,6 +188,7 @@ def test_v2ray_key(key_url):
         if temp_config_file and os.path.exists(temp_config_file):
             try: os.remove(temp_config_file)
             except Exception as e_rem: print(f"Warning: Failed to remove temp config file {temp_config_file}: {e_rem}")
+
 
 # --- Main Execution (main) ---
 def main():
@@ -258,3 +260,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
