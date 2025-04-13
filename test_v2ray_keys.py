@@ -40,11 +40,7 @@ TEST_TIMEOUT = 20       # Slightly increase test timeout
 
 # --- Xray Installation (No changes needed from previous version) ---
 def download_and_extract_xray():
-    """Downloads and extracts the latest Xray core binary."""
-    # ... (Keep the existing robust download/extract logic here) ...
-    # (Code from previous answer is assumed here)
-    print("Checking/Downloading Xray...")
-   # Inside download_and_extract_xray() function, after os.chmod line:
+    # Inside download_and_extract_xray() function, after os.chmod line:
 print(f"Attempting to verify {XRAY_PATH}...")
 try:
     # Check version
@@ -73,6 +69,10 @@ except Exception as verify_e:
 return True # Assuming download/extract itself didn't fail earlier
 # ... rest of the function or original return statement ...
 
+    """Downloads and extracts the latest Xray core binary."""
+    # ... (Keep the existing robust download/extract logic here) ...
+    # (Code from previous answer is assumed here)
+    print("Checking/Downloading Xray...")
     try:
         # ... (API fetch, asset determination logic) ...
         api_url = "https://api.github.com/repos/XTLS/Xray-core/releases/latest"
