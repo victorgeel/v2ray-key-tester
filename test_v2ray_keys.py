@@ -19,7 +19,7 @@ SOURCE_URLS = {
     "key2": "https://raw.githubusercontent.com/SonzaiEkkusu/V2RayDumper/main/config.txt",
     "key3": "https://raw.githubusercontent.com/iboxz/free-v2ray-collector/main/main/mix",
     "key6": "https://raw.githubusercontent.com/Surfboardv2ray/TGParse/main/splitted/ss",
-    "key5": "https://raw.githubusercontent.com/roosterkid/openproxylist/main/V2RAY.txt",
+    "key5": "https://raw.githubusercontent.com/Surfboardv2ray/TGParse/main/python/ss",
     "key4": "https://raw.githubusercontent.com/miladtahanian/V2RayCFGDumper/main/config.txt",
     "hk": "https://raw.githubusercontent.com/SoliSpirit/v2ray-configs/main/Countries/Hong_Kong.txt",
     "jp": "https://raw.githubusercontent.com/SoliSpirit/v2ray-configs/main/Countries/Japan.txt",
