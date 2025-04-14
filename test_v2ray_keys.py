@@ -253,7 +253,10 @@ def main():
          print("No keys fetched or extracted, nothing to test.");
          for command in SOURCE_URLS.keys():
              output_filename = os.path.join(OUTPUT_DIR, f"working_{command.lstrip('/')}.txt")
-             try: open(output_filename, 'w').close()
+             try:
+                 # Ensure UTF-8 and LF even for empty files
+                 with open(output_filename, 'w', encoding='utf-8', newline='\n') as f:
+                     pass # Just create the file
              except Exception as e_f: print(f"Warning: Could not create empty file {output_filename}: {e_f}")
          print("Created empty output files (if possible)."); return
 
@@ -290,14 +293,20 @@ def main():
              print(f"  {command}: {len(keys)} working keys found."); total_working += len(keys); output_filename = os.path.join(OUTPUT_DIR, f"working_{command.lstrip('/')}.txt")
              try:
                  keys.sort(); # Sort keys before writing
-                 with open(output_filename, 'w', encoding='utf-8') as f:
+                 # ***** MODIFIED LINE HERE *****
+                 with open(output_filename, 'w', encoding='utf-8', newline='\n') as f:
                      for key in keys: f.write(key + '\n')
+                 # ***** END MODIFIED LINE *****
              except Exception as e_w: print(f"    ERROR writing file {output_filename}: {e_w}")
     # Ensure empty files are created for sources that yielded 0 working keys or failed fetch
     for command in SOURCE_URLS.keys():
          output_filename = os.path.join(OUTPUT_DIR, f"working_{command.lstrip('/')}.txt")
          if not os.path.exists(output_filename):
-              try: open(output_filename, 'w').close(); print(f"  {command}: 0 working keys found (created empty file).")
+              try:
+                  # Ensure UTF-8 and LF even for empty files
+                  with open(output_filename, 'w', encoding='utf-8', newline='\n') as f:
+                      pass # Just create the file
+                  print(f"  {command}: 0 working keys found (created empty file).")
               except Exception as e_f: print(f"Warning: Could not create empty file {output_filename}: {e_f}")
 
     end_time = time.time()
@@ -307,3 +316,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
