@@ -4,6 +4,7 @@ name: Test V2Ray Keys and Upload to R2 & GitHub
 on:
   schedule:
     # နာရီတိုင်း run မယ် (လိုအပ်သလို ပြင်ပါ)
+    # Example: runs at minute 0 past every hour
     - cron: '0 * * * *'
   workflow_dispatch: # Manually run ခွင့်ပြုရန်
 
@@ -11,9 +12,12 @@ jobs:
   test-and-upload:
     runs-on: ubuntu-latest # Linux runner ကို သုံးမည်
     steps:
-      # 1. Repository code ကို checkout လုပ်မည်
+      # 1. Repository code ကို checkout လုပ်မည် (PAT ကို အသုံးပြုရန်)
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.PAT }} # Repository ကို ပြန် push လုပ်ဖို့ PAT ကိုသုံးမည်
+          persist-credentials: false # Credential conflict ရှောင်ရန်
 
       # 2. Python ကို setup လုပ်မည်
       - name: Set up Python
@@ -28,39 +32,47 @@ jobs:
       # 4. V2Ray Key Tester Python script ကို run မည်
       - name: Run V2Ray Key Tester Script
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }} # Xray download အတွက် token
+          # Default GITHUB_TOKEN ကိုသုံးနိုင်သည် (ဥပမာ - Xray download အတွက်)
+          # Script က private repo access မလို၊ API ခေါ်တာမျိုး မဟုတ်ရင် ဒါအဆင်ပြေသည်
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         # Python script က OUTPUT_DIR = "subscription" လို့ သတ်မှတ်ထားရန်လို
         run: python test_v2ray_keys.py
 
-      # 5. Subscription ဖိုင်တွေကို GitHub Repo ကို Commit & Push လုပ်မည်
+      # 5. Subscription ဖိုင်တွေကို GitHub Repo ကို Commit & Push လုပ်မည် (PAT ကို သုံးရန် ပြင်ဆင်ထားသည်)
       - name: Commit and Push Subscription Files to Repo
         run: |
-          # Python script က ဖန်တီးမယ့် subscription directory ရှိမရှိ အရင်စစ်ပါ
           SUB_DIR="subscription" # Python script ထဲက OUTPUT_DIR နဲ့ တူရမည်
           if [ ! -d "${SUB_DIR}" ]; then
             echo "Directory '${SUB_DIR}' not found. Skipping Git commit."
-            echo "Continuing workflow..." # Default: ဆက်လုပ်မည်
           else
+            echo "Configuring Git user..."
             git config --global user.name 'github-actions[bot]'
             git config --global user.email 'github-actions[bot]@users.noreply.github.com'
 
+            echo "Adding files from '${SUB_DIR}' to staging area..."
             # subscription directory ထဲက ဖိုင်အားလုံးကို stage လုပ်ပါ
             git add ${SUB_DIR}/*
 
             # Commit လုပ်စရာ အပြောင်းအလဲ ရှိမရှိ စစ်ဆေးပါ
+            echo "Checking for staged changes..."
             if git diff --staged --quiet; then
-              echo "No changes in '${SUB_DIR}' directory to commit to repo."
+              echo "No changes detected in '${SUB_DIR}' directory to commit."
             else
-              echo "Changes detected in '${SUB_DIR}'. Committing and pushing to repo..."
+              echo "Changes detected in '${SUB_DIR}'. Committing..."
               # Commit message မှာ [skip ci] ပါအောင် ထည့်ပါ (workflow ထပ်မ run စေရန်)
               git commit -m "Update subscription files in ${SUB_DIR} [skip ci]"
-              # --- PAT ကို အသုံးပြုရန် ပြင်ဆင်ထားသည် ---
+
+              echo "Setting remote URL with PAT for push..."
+              # PAT ကို အသုံးပြု၍ push လုပ်ရန် remote URL ကို သတ်မှတ်ပါ
+              git remote set-url origin https://x-access-token:${{ secrets.PAT }}@github.com/${{ github.repository }}
+
+              echo "Pushing changes to origin..."
+              # လက်ရှိ branch ကို push လုပ်ပါ
               git push origin HEAD:${{ github.ref_name }}
+              echo "Push completed successfully."
             fi
           fi
-        env:
-          # --- Repository Secret ထဲက PAT ကို ဤနေရာတွင် သုံးပါ ---
-          GITHUB_TOKEN: ${{ secrets.PAT }}
+        # env block ကို ဤနေရာတွင် မလိုအပ်တော့ပါ (push command ထဲမှာ token သုံးထားပြီး)
 
       # 6. rclone ကို install လုပ်မည် (R2 အတွက်)
       - name: Install rclone
@@ -105,3 +117,4 @@ jobs:
             echo "Removing directory ${CLEANUP_DIR}..."
             rm -rf ./${CLEANUP_DIR}
           fi
+
