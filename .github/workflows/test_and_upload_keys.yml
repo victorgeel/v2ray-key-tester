@@ -1,40 +1,78 @@
-name: Test V2Ray Keys and Upload to R2
+# Workflow နာမည်
+name: Test V2Ray Keys and Upload to R2 & GitHub
 
 on:
   schedule:
-    # Runs every hour (adjust as needed)
+    # နာရီတိုင်း run မယ် (လိုအပ်သလို ပြင်ပါ)
     - cron: '0 * * * *'
-  workflow_dispatch: # Allows manual triggering
+  workflow_dispatch: # Manually run ခွင့်ပြုရန်
 
 jobs:
   test-and-upload:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-latest # Linux runner ကို သုံးမည်
     steps:
+      # 1. Repository code ကို checkout လုပ်မည်
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      # 2. Python ကို setup လုပ်မည်
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.10' # Or newer version
+          python-version: '3.10' # Python version (လိုအပ်လျှင် ပြင်ပါ)
 
+      # 3. Python dependencies တွေကို requirements.txt ကနေ install လုပ်မည်
       - name: Install Python dependencies
-        # Assuming requirements.txt is now in the root directory based on previous fix
         run: pip install -r requirements.txt
 
+      # 4. V2Ray Key Tester Python script ကို run မည်
       - name: Run V2Ray Key Tester Script
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }} # Use built-in token
-        # Assuming test_v2ray_keys.py is now in the root directory based on previous fix
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }} # Xray download အတွက် token
+        # Python script က OUTPUT_DIR = "subscription" လို့ သတ်မှတ်ထားရန်လို
         run: python test_v2ray_keys.py
 
-      - name: Install rclone # Tool to interact with R2
+      # 5. Subscription ဖိုင်တွေကို GitHub Repo ကို Commit & Push လုပ်မည်
+      - name: Commit and Push Subscription Files to Repo
+        run: |
+          # Python script က ဖန်တီးမယ့် subscription directory ရှိမရှိ အရင်စစ်ပါ
+          SUB_DIR="subscription" # Python script ထဲက OUTPUT_DIR နဲ့ တူရမည်
+          if [ ! -d "${SUB_DIR}" ]; then
+            echo "Directory '${SUB_DIR}' not found. Skipping Git commit."
+            # exit 0 # Success အဖြစ် ထွက် (R2 sync ကို ဆက်လုပ်စေရန်)
+            echo "Continuing workflow..." # Default: ဆက်လုပ်မည်
+          else
+            git config --global user.name 'github-actions[bot]'
+            git config --global user.email 'github-actions[bot]@users.noreply.github.com'
+            
+            # subscription directory ထဲက ဖိုင်အားလုံးကို stage လုပ်ပါ
+            git add ${SUB_DIR}/*
+            
+            # Commit လုပ်စရာ အပြောင်းအလဲ ရှိမရှိ စစ်ဆေးပါ
+            if git diff --staged --quiet; then
+              echo "No changes in '${SUB_DIR}' directory to commit to repo."
+            else
+              echo "Changes detected in '${SUB_DIR}'. Committing and pushing to repo..."
+              # Commit message မှာ [skip ci] ပါအောင် ထည့်ပါ (workflow ထပ်မ run စေရန်)
+              git commit -m "Update subscription files in ${SUB_DIR} [skip ci]"
+              # Push လုပ်ရန် Token (လိုအပ်လျှင် PATသုံးပါ)
+              git push origin HEAD:${{ github.ref_name }}
+            fi
+          fi
+        env:
+          # !!! GITHUB_TOKEN က push လုပ်ခွင့် မရှိတတ်ပါ။ အဆင်မပြေရင် PAT ကိုသုံးပါ။ !!!
+          # PAT (repo scope) ကို secrets.PAT အဖြစ် သိမ်းပြီး အောက်က line ကို ပြောင်းသုံးပါ:
+          # GITHUB_TOKEN: ${{ secrets.PAT }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # 6. rclone ကို install လုပ်မည် (R2 အတွက်)
+      - name: Install rclone
         run: |
           sudo apt-get update && sudo apt-get install -y rclone
 
+      # 7. rclone ကို Cloudflare R2 အတွက် configure လုပ်မည်
       - name: Configure rclone for Cloudflare R2
         env:
-          # Get credentials from GitHub Secrets
           R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
           R2_ENDPOINT: ${{ secrets.R2_ENDPOINT }}
@@ -45,26 +83,28 @@ jobs:
             access_key_id=$R2_ACCESS_KEY_ID \
             secret_access_key=$R2_SECRET_ACCESS_KEY \
             endpoint=$R2_ENDPOINT \
-            acl=public-read # Make uploaded files public automatically
+            acl=public-read # Optional: Bot က public file ဖတ်ရန် လိုအပ်လျှင် ထားခဲ့ပါ
 
-      - name: Upload working key files to R2 Bucket
+      # 8. Working key ဖိုင်တွေကို R2 Bucket ကို Sync လုပ်မည်
+      - name: Sync working key files to R2 Bucket
         env:
           R2_BUCKET_NAME: ${{ secrets.R2_BUCKET_NAME }}
         run: |
-          # Sync the output directory (created by python script) to the root of the R2 bucket
-          # Ensure the python script actually creates the ./output directory
-          if [ -d "./output" ]; then
-            echo "Output directory found. Syncing to R2..."
-            rclone sync ./output R2:${R2_BUCKET_NAME}/ --progress --verbose
+          # Python script က ထုတ်ပေးတဲ့ မှန်ကန်တဲ့ directory ကို sync လုပ်ပါ
+          SYNC_DIR="subscription" # Python script ထဲက OUTPUT_DIR နဲ့ တူရမည်
+          if [ -d "./${SYNC_DIR}" ]; then
+            echo "Output directory '${SYNC_DIR}' found. Syncing to R2 bucket root..."
+            # R2 Bucket ရဲ့ root ကို sync လုပ်ပါမယ်
+            rclone sync ./${SYNC_DIR} R2:${R2_BUCKET_NAME}/ --progress --verbose
           else
-            echo "Output directory not found. Skipping R2 sync."
-            # Optionally exit with error: exit 1
+            echo "Output directory '${SYNC_DIR}' not found. Skipping R2 sync."
           fi
 
+      # 9. Output directory ကို ရှင်းလင်းမည် (Optional)
       - name: Clean up output directory (optional)
-        # Only run if output directory exists
         run: |
-          if [ -d "./output" ]; then
-            rm -rf ./output
+          CLEANUP_DIR="subscription" # Python script ထဲက OUTPUT_DIR နဲ့ တူရမည်
+          if [ -d "./${CLEANUP_DIR}" ]; then
+            echo "Removing directory ${CLEANUP_DIR}..."
+            rm -rf ./${CLEANUP_DIR}
           fi
-          
