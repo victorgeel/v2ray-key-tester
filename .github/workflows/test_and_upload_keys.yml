@@ -39,15 +39,14 @@ jobs:
           SUB_DIR="subscription" # Python script ထဲက OUTPUT_DIR နဲ့ တူရမည်
           if [ ! -d "${SUB_DIR}" ]; then
             echo "Directory '${SUB_DIR}' not found. Skipping Git commit."
-            # exit 0 # Success အဖြစ် ထွက် (R2 sync ကို ဆက်လုပ်စေရန်)
             echo "Continuing workflow..." # Default: ဆက်လုပ်မည်
           else
             git config --global user.name 'github-actions[bot]'
             git config --global user.email 'github-actions[bot]@users.noreply.github.com'
-            
+
             # subscription directory ထဲက ဖိုင်အားလုံးကို stage လုပ်ပါ
             git add ${SUB_DIR}/*
-            
+
             # Commit လုပ်စရာ အပြောင်းအလဲ ရှိမရှိ စစ်ဆေးပါ
             if git diff --staged --quiet; then
               echo "No changes in '${SUB_DIR}' directory to commit to repo."
@@ -55,15 +54,13 @@ jobs:
               echo "Changes detected in '${SUB_DIR}'. Committing and pushing to repo..."
               # Commit message မှာ [skip ci] ပါအောင် ထည့်ပါ (workflow ထပ်မ run စေရန်)
               git commit -m "Update subscription files in ${SUB_DIR} [skip ci]"
-              # Push လုပ်ရန် Token (လိုအပ်လျှင် PATသုံးပါ)
+              # --- PAT ကို အသုံးပြုရန် ပြင်ဆင်ထားသည် ---
               git push origin HEAD:${{ github.ref_name }}
             fi
           fi
         env:
-          # !!! GITHUB_TOKEN က push လုပ်ခွင့် မရှိတတ်ပါ။ အဆင်မပြေရင် PAT ကိုသုံးပါ။ !!!
-          # PAT (repo scope) ကို secrets.PAT အဖြစ် သိမ်းပြီး အောက်က line ကို ပြောင်းသုံးပါ:
-          # GITHUB_TOKEN: ${{ secrets.PAT }}
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # --- Repository Secret ထဲက PAT ကို ဤနေရာတွင် သုံးပါ ---
+          GITHUB_TOKEN: ${{ secrets.PAT }}
 
       # 6. rclone ကို install လုပ်မည် (R2 အတွက်)
       - name: Install rclone
