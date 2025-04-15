@@ -16,11 +16,11 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 # --- Configuration ---
 SOURCE_URLS = {
     # !!! အရေးကြီး: key1 အတွက် အလုပ်လုပ်သော URL အသစ် ရှာဖွေပြီး အစားထိုးရန် လိုအပ်ပါသည် !!!
-    "key1": "https://raw.githubusercontent.com/darknessm427/V2ray-Sub-Collector/main/Sort-By-Protocol/Darkness_vmess.txt", # Needs replacement URL
-    "key2": "https://raw.githubusercontent.com/SonzaiEkkusu/V2RayDumper/main/config.txt",
-    "key3": "https://raw.githubusercontent.com/iboxz/free-v2ray-collector/main/main/mix",
+    "key1": "https://raw.githubusercontent.com/lagzian/SS-Collector/main/SS/Trinity.txt", # Needs replacement URL
+    "key2": "https://raw.githubusercontent.com/roosterkid/openproxylist/main/V2RAY.txt",
+    "key3": "https://raw.githubusercontent.com/miladtahanian/V2RayCFGDumper/main/config.txt",
     "key5": "https://raw.githubusercontent.com/SoliSpirit/v2ray-configs/main/Countries/United_States.txt", # URL အသစ်
-    "key4": "https://raw.githubusercontent.com/miladtahanian/V2RayCFGDumper/main/config.txt",
+    "key4": "https://raw.githubusercontent.com/MrMohebi/xray-proxy-grabber-telegram/master/collected-proxies/row-url/all.txt",
     "key6": "https://raw.githubusercontent.com/roosterkid/openproxylist/main/V2RAY.txt", # URL အသစ် (raw URL ပြောင်းပြီး)
     "hk": "https://raw.githubusercontent.com/SoliSpirit/v2ray-configs/main/Countries/Hong_Kong.txt",
     "jp": "https://raw.githubusercontent.com/SoliSpirit/v2ray-configs/main/Countries/Japan.txt",
