@@ -219,7 +219,7 @@ def main():
             try: raw_data = response.content.decode(response.encoding or 'utf-8', errors='replace')
             except Exception: raw_data = response.text
             processed_data = raw_data
-            if command in ["key1", "tw", "key6"]: # ဒီ command တွေအတွက် Base64 ကို သီးခြားစီမံမယ်
+            if command in ["tw"]: # tw အတွက် Base64 ကို သီးခြားစီမံမယ်
                 decoded_lines = []
                 for line in raw_data.splitlines():
                     line = line.strip()
@@ -309,7 +309,7 @@ def main():
               try:
                   with open(output_filename, 'w', encoding='utf-8', newline='\n') as f: pass
                   print(f"  {command}: 0 working keys processed (created/ensured empty file: {output_filename}).")
-              except Exception as e_f: print(f"Warning: Could not create/ensure empty file {output_filename}: {e_f}")
+              except Exception as e_f: print(f"Warning: Could not create empty file {output_filename}: {e_f}")
 
     end_time = time.time()
     print(f"\nTotal working keys found and saved (after limits): {total_working}") # Note: This total might be misleading if limits applied
