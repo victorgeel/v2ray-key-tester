@@ -19,10 +19,9 @@ SOURCE_URLS = {
     "key1": "https://raw.githubusercontent.com/darknessm427/V2ray-Sub-Collector/main/Sort-By-Protocol/Darkness_vmess.txt", # Needs replacement URL
     "key2": "https://raw.githubusercontent.com/SonzaiEkkusu/V2RayDumper/main/config.txt",
     "key3": "https://raw.githubusercontent.com/iboxz/free-v2ray-collector/main/main/mix",
-    # !!! အရေးကြီး: key5 အတွက် အလုပ်လုပ်သော URL အသစ် ရှာဖွေပြီး အစားထိုးရန် လိုအပ်ပါသည် !!!
-    "key5": "https://raw.githubusercontent.com/Surfboardv2ray/TGParse/main/python/ss", # Needs replacement URL (This was original key5 URL)
+    "key5": "https://raw.githubusercontent.com/soroushmirzaei/telegram-configs-collector/main/splitted/channels", # URL အသစ်
     "key4": "https://raw.githubusercontent.com/miladtahanian/V2RayCFGDumper/main/config.txt",
-    "key6": "https://raw.githubusercontent.com/Surfboardv2ray/TGParse/main/splitted/ss", # Original key6 URL
+    "key6": "https://raw.githubusercontent.com/roosterkid/openproxylist/main/V2RAY.txt", # URL အသစ်
     "hk": "https://raw.githubusercontent.com/SoliSpirit/v2ray-configs/main/Countries/Hong_Kong.txt",
     "jp": "https://raw.githubusercontent.com/SoliSpirit/v2ray-configs/main/Countries/Japan.txt",
     "sg": "https://raw.githubusercontent.com/SoliSpirit/v2ray-configs/main/Countries/Singapore.txt",
@@ -221,15 +220,28 @@ def main():
             try: raw_data = response.content.decode(response.encoding or 'utf-8', errors='replace')
             except Exception: raw_data = response.text
             processed_data = raw_data
-            try: # Base64 detection logic (simplified)
-                potential_b64 = raw_data.replace('\n', '').replace('\r', '').strip(); is_likely_b64 = False
-                if len(potential_b64) > 20 and all(c in 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=' for c in potential_b64):
-                    try: decoded_bytes = base64.b64decode(potential_b64 + '=' * (-len(potential_b64) % 4)); decoded_string = decoded_bytes.decode('utf-8', errors='replace')
-                    except Exception: decoded_string = ""
-                    if any(prefix in decoded_string for prefix in ["vmess://", "vless://", "trojan://", "ss://"]): print(f"  Detected single Base64 block content for {command}, using decoded data."); processed_data = decoded_string; is_likely_b64 = True
-                if not is_likely_b64: print(f"  Content for {command} treated as plain text (or Base64 decode failed/yielded no keys).")
-            except Exception as decode_error: print(f"  Error during Base64 check/decode for {command} (Error: {decode_error}), treating as plain text."); processed_data = raw_data
-            keys_from_source = [ line.strip() for line in processed_data.splitlines() if line.strip() and any(line.strip().startswith(p) for p in ["vmess://", "vless://", "trojan://", "ss://"]) ]
+            if command in ["key1", "tw", "key6"]: # ဒီ command တွေအတွက် Base64 ကို သီးခြားစီမံမယ်
+                decoded_lines = []
+                for line in raw_data.splitlines():
+                    line = line.strip()
+                    if line:
+                        try:
+                            decoded_bytes = base64.b64decode(line + '=' * (-len(line) % 4))
+                            decoded_line = decoded_bytes.decode('utf-8', errors='replace').strip()
+                            if any(decoded_line.startswith(p) for p in ["vmess://", "vless://", "trojan://", "ss://"]):
+                                decoded_lines.append(decoded_line)
+                        except Exception:
+                            # Base64 မဟုတ်ရင် (သို့) error တက်ရင် မလုပ်ဆောင်တော့ပါ
+                            pass
+                if decoded_lines:
+                    print(f"  Detected and decoded {len(decoded_lines)} keys from Base64 content for {command}.")
+                    processed_data = "\n".join(decoded_lines)
+                else:
+                    print(f"  Content for {command} treated as plain text (no valid Base64 keys found).")
+            else:
+                print(f"  Content for {command} treated as plain text.")
+
+            keys_from_source = [line.strip() for line in processed_data.splitlines() if line.strip() and any(line.strip().startswith(p) for p in ["vmess://", "vless://", "trojan://", "ss://"])]
             print(f"  Found {len(keys_from_source)} potential keys for {command} after final processing.")
             if keys_from_source:
                 for key in keys_from_source:
