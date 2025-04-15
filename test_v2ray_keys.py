@@ -19,9 +19,9 @@ SOURCE_URLS = {
     "key1": "https://raw.githubusercontent.com/darknessm427/V2ray-Sub-Collector/main/Sort-By-Protocol/Darkness_vmess.txt", # Needs replacement URL
     "key2": "https://raw.githubusercontent.com/SonzaiEkkusu/V2RayDumper/main/config.txt",
     "key3": "https://raw.githubusercontent.com/iboxz/free-v2ray-collector/main/main/mix",
-    "key5": "https://raw.githubusercontent.com/soroushmirzaei/telegram-configs-collector/main/splitted/channels", # URL အသစ်
+    "key5": "https://raw.githubusercontent.com/SoliSpirit/v2ray-configs/main/Countries/United_States.txt", # URL အသစ်
     "key4": "https://raw.githubusercontent.com/miladtahanian/V2RayCFGDumper/main/config.txt",
-    "key6": "https://raw.githubusercontent.com/roosterkid/openproxylist/main/V2RAY.txt", # URL အသစ်
+    "key6": "https://raw.githubusercontent.com/roosterkid/openproxylist/main/V2RAY.txt", # URL အသစ် (raw URL ပြောင်းပြီး)
     "hk": "https://raw.githubusercontent.com/SoliSpirit/v2ray-configs/main/Countries/Hong_Kong.txt",
     "jp": "https://raw.githubusercontent.com/SoliSpirit/v2ray-configs/main/Countries/Japan.txt",
     "sg": "https://raw.githubusercontent.com/SoliSpirit/v2ray-configs/main/Countries/Singapore.txt",
