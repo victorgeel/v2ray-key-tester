@@ -112,7 +112,6 @@ def download_and_extract_xray():
 # --- Config Generation (generate_config) ---
 def generate_config(key_url):
     """Generates a minimal Xray JSON config for testing various key types."""
-    # ... (ဒီ function က မပြောင်းပါ - keep as is, including improvements) ...
     try:
         key_url = key_url.strip()
         if not key_url or '://' not in key_url: return None
@@ -121,14 +120,14 @@ def generate_config(key_url):
         if protocol == "vmess":
             try:
                 try: vmess_b64 = key_url[8:]; vmess_b64 += '=' * (-len(vmess_b64) % 4); vmess_json_str = base64.b64decode(vmess_b64).decode('utf-8', errors='replace'); vmess_params = json.loads(vmess_json_str)
-                except Exception: return None
+                except Exception as e: print(f"DEBUG: Error decoding vmess: {e} for {key_url[:50]}"); return None
                 outbound["settings"]["vnext"] = [{"address": vmess_params.get("add", ""), "port": int(vmess_params.get("port", 443)), "users": [{"id": vmess_params.get("id", ""), "alterId": int(vmess_params.get("aid", 0)), "security": vmess_params.get("scy", "auto")}]}]; stream_settings = {"network": vmess_params.get("net", "tcp"), "security": vmess_params.get("tls", "none")}
                 if stream_settings["security"] == "tls": sni = vmess_params.get("sni", vmess_params.get("host", "")); sni = sni if sni else vmess_params.get("add", ""); stream_settings["tlsSettings"] = {"serverName": sni, "allowInsecure": False}
                 net_type = stream_settings["network"]; host = vmess_params.get("host", vmess_params.get("add", "")); path = vmess_params.get("path", "/")
                 if net_type == "ws": stream_settings["wsSettings"] = {"path": path, "headers": {"Host": host}}
                 elif net_type == "tcp" and vmess_params.get("type") == "http": host_list = [h.strip() for h in host.split(',') if h.strip()] or [vmess_params.get("add", "")]; stream_settings["tcpSettings"] = {"header": {"type": "http", "request": {"path": [path], "headers": {"Host": host_list}}}}
                 outbound["streamSettings"] = stream_settings; config = base_config
-            except Exception: return None
+            except Exception as e: print(f"DEBUG: Error generating vmess config: {e} for {key_url[:50]}"); return None
         elif protocol == "vless":
             try:
                 if not parsed_url.username or not parsed_url.hostname: return None; uuid = parsed_url.username; address = parsed_url.hostname; port = int(parsed_url.port or 443); params = parse_qs(parsed_url.query)
@@ -139,7 +138,7 @@ def generate_config(key_url):
                 if net_type == "ws": stream_settings["wsSettings"] = {"path": path, "headers": {"Host": host}}
                 elif net_type == "grpc": stream_settings["grpcSettings"] = {"serviceName": service_name}
                 outbound["streamSettings"] = stream_settings; config = base_config
-            except Exception: return None
+            except Exception as e: print(f"DEBUG: Error generating vless config: {e} for {key_url[:50]}"); return None
         elif protocol == "trojan":
             try:
                 if not parsed_url.username or not parsed_url.hostname: return None; password = unquote_plus(parsed_url.username); address = parsed_url.hostname; port = int(parsed_url.port or 443); params = parse_qs(parsed_url.query)
@@ -149,24 +148,24 @@ def generate_config(key_url):
                 if net_type == "ws": stream_settings["wsSettings"] = {"path": path, "headers": {"Host": host}}
                 elif net_type == "grpc": stream_settings["grpcSettings"] = {"serviceName": service_name}
                 outbound["streamSettings"] = stream_settings; config = base_config
-            except Exception: return None
+            except Exception as e: print(f"DEBUG: Error generating trojan config: {e} for {key_url[:50]}"); return None
         elif protocol == "ss":
              try:
                  if '@' not in parsed_url.netloc: return None; user_info_part = parsed_url.netloc.split('@')[0]; server_part = parsed_url.netloc.split('@')[1]; address = server_part.split(':')[0]; port = int(server_part.split(':')[1]); decoded_user_info = None
                  try: user_info_b64 = user_info_part; user_info_b64 += '=' * (-len(user_info_b64) % 4); decoded_user_info = base64.b64decode(user_info_b64).decode('utf-8', errors='replace')
-                 except Exception: decoded_user_info = unquote_plus(user_info_part)
+                 except Exception as e: print(f"DEBUG: Error decoding ss user info: {e} for {key_url[:50]}"); return None
                  if ':' not in decoded_user_info: return None; method, password = decoded_user_info.split(':', 1)
                  outbound["settings"]["servers"] = [{"address": address, "port": port, "method": method, "password": password}]; outbound["streamSettings"]["network"] = "tcp"
                  if "security" in outbound["streamSettings"]: del outbound["streamSettings"]["security"]
                  config = base_config
-             except Exception: return None
+             except Exception as e: print(f"DEBUG: Error generating ss config: {e} for {key_url[:50]}"); return None
         else: return None
         if "streamSettings" in outbound and not outbound["streamSettings"]: del outbound["streamSettings"]
         elif "streamSettings" in outbound:
              if "tlsSettings" in outbound["streamSettings"] and not outbound["streamSettings"]["tlsSettings"]: del outbound["streamSettings"]["tlsSettings"]
              if "wsSettings" in outbound["streamSettings"] and not outbound["streamSettings"]["wsSettings"]: del outbound["streamSettings"]["wsSettings"]
         return json.dumps(config, indent=2) if config else None
-    except Exception: return None
+    except Exception as e: print(f"DEBUG: Outer error in generate_config: {e} for {key_url[:50]}"); return None
 
 
 # --- Key Testing (test_v2ray_key) ---
@@ -220,28 +219,27 @@ def main():
             except Exception: raw_data = response.text
             processed_data = raw_data
             if command in ["tw"]: # tw အတွက် Base64 ကို သီးခြားစီမံမယ်
-                decoded_lines = []
-                for line in raw_data.splitlines():
+                decoded_keys = []
+                for line in processed_data.splitlines():
                     line = line.strip()
-                    if line:
+                    if line.startswith("vmess://"):
                         try:
-                            decoded_bytes = base64.b64decode(line + '=' * (-len(line) % 4))
-                            decoded_line = decoded_bytes.decode('utf-8', errors='replace').strip()
-                            if any(decoded_line.startswith(p) for p in ["vmess://", "vless://", "trojan://", "ss://"]):
-                                decoded_lines.append(decoded_line)
+                            vmess_b64 = line[8:]
+                            vmess_b64 += '=' * (-len(vmess_b64) % 4)
+                            base64.b64decode(vmess_b64).decode('utf-8', errors='replace')
+                            decoded_keys.append(line)
                         except Exception:
-                            # Base64 မဟုတ်ရင် (သို့) error တက်ရင် မလုပ်ဆောင်တော့ပါ
-                            pass
-                if decoded_lines:
-                    print(f"  Detected and decoded {len(decoded_lines)} keys from Base64 content for {command}.")
-                    processed_data = "\n".join(decoded_lines)
-                else:
-                    print(f"  Content for {command} treated as plain text (no valid Base64 keys found).")
+                            print(f"  DEBUG: Failed to decode Base64 for vmess key: {line[:50]}...")
+                    elif line and any(line.startswith(p) for p in ["vless://", "trojan://", "ss://"]):
+                        decoded_keys.append(line)
+                keys_from_source = decoded_keys
+                print(f"  Processed {len(keys_from_source)} keys for {command}.")
+
             else:
                 print(f"  Content for {command} treated as plain text.")
+                keys_from_source = [line.strip() for line in processed_data.splitlines() if line.strip() and any(line.strip().startswith(p) for p in ["vmess://", "vless://", "trojan://", "ss://"])]
+                print(f"  Found {len(keys_from_source)} potential keys for {command} after final processing.")
 
-            keys_from_source = [line.strip() for line in processed_data.splitlines() if line.strip() and any(line.strip().startswith(p) for p in ["vmess://", "vless://", "trojan://", "ss://"])]
-            print(f"  Found {len(keys_from_source)} potential keys for {command} after final processing.")
             if keys_from_source:
                 for key in keys_from_source:
                     if key not in source_map: all_keys_to_test.append(key); source_map[key] = command
