@@ -16,8 +16,8 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 # --- Configuration ---
 SOURCE_URLS = {
     # !!! အရေးကြီး: key1 အတွက် အလုပ်လုပ်သော URL အသစ် ရှာဖွေပြီး အစားထိုးရန် လိုအပ်ပါသည် !!!
-    "key1": "https://raw.githubusercontent.com/lagzian/SS-Collector/main/SS/Trinity.txt", # Needs replacement URL
-    "key2": "https://raw.githubusercontent.com/roosterkid/openproxylist/main/V2RAY.txt",
+    "key1": "https://raw.githubusercontent.com/Surfboardv2ray/TGParse/main/splitted/ss", # Needs replacement URL
+    "key2": "https://raw.githubusercontent.com/MhdiTaheri/V2rayCollector/main/sub/mixbase64",
     "key3": "https://raw.githubusercontent.com/miladtahanian/V2RayCFGDumper/main/config.txt",
     "key5": "https://raw.githubusercontent.com/SoliSpirit/v2ray-configs/main/Countries/United_States.txt", # URL အသစ်
     "key4": "https://raw.githubusercontent.com/MrMohebi/xray-proxy-grabber-telegram/master/collected-proxies/row-url/all.txt",
