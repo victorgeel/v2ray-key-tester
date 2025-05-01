@@ -42,8 +42,6 @@ def get_latest_clash_version():
         return "v1.21.0"  # Fallback to a known stable version
 
 
-# --- Download and Setup Clash ---
-def download_and_extract_clash():
 
 
 # --- Generate Clash Configuration ---
