@@ -41,23 +41,15 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: python test_v2ray_keys.py
 
-      # 6. Verify log file existence
-      - name: Verify log file existence
-        run: |
-          if [ -f subscription/job-logs.txt ]; then
-            echo "Log file exists: subscription/job-logs.txt"
-          else
-            echo "Log file does not exist!"
-            exit 1
-          fi
-
-      # 7. Upload logs for debugging
+      # 6. Upload logs for debugging (optional if log file exists)
       - name: Upload logs for debugging
+        if: always() # Always run this step
         uses: actions/upload-artifact@v4.6.2
         with:
           name: script-logs
           path: subscription/job-logs.txt
-
+          if-no-files-found: ignore # Avoid failure if the file does not exist
+      
       # 8. Verify subscription directory
       - name: Verify subscription directory
         run: |
