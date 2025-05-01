@@ -44,6 +44,23 @@ def validate_subscription_url(url):
         print(f"Invalid URL format: {url}, Error: {e}")
         return False
 
+def parse_key(url):
+    """
+    Parse a key (VMess, VLess, SS) into a Clash-compatible proxy configuration.
+    """
+    try:
+        if url.startswith("vmess://"):
+            return parse_vmess_key(url)
+        elif url.startswith("vless://"):
+            return parse_vless_key(url)
+        elif url.startswith("ss://"):
+            return parse_ss_key(url)
+        else:
+            raise ValueError("Unsupported protocol")
+    except Exception as e:
+        print(f"Error parsing key: {url}, Reason: {e}")
+        return None
+
 def parse_vmess_key(url):
     """Parse a VMess key into a Clash-compatible proxy configuration."""
     try:
@@ -75,8 +92,40 @@ def parse_vmess_key(url):
             "tls": vmess_data.get("tls", False),
         }
     except (ValueError, KeyError, json.JSONDecodeError, base64.binascii.Error) as e:
-        # Log specific error details
         print(f"Error parsing VMess key: {url}, Reason: {e}")
+        return None
+
+def parse_vless_key(url):
+    """Parse a VLess key into a Clash-compatible proxy configuration."""
+    try:
+        # Example: Add parsing logic for VLess keys
+        return {
+            "name": "VLess Proxy",
+            "type": "vless",
+            "server": "example.com",  # Replace with actual server
+            "port": 443,             # Replace with actual port
+            "uuid": "example-uuid",  # Extract the UUID
+            "encryption": "none",
+            "tls": True
+        }
+    except Exception as e:
+        print(f"Error parsing VLess key: {url}, Reason: {e}")
+        return None
+
+def parse_ss_key(url):
+    """Parse a Shadowsocks (SS) key into a Clash-compatible proxy configuration."""
+    try:
+        # Example: Add parsing logic for SS keys
+        return {
+            "name": "Shadowsocks Proxy",
+            "type": "ss",
+            "server": "example.com",  # Replace with actual server
+            "port": 8388,            # Replace with actual port
+            "cipher": "aes-256-gcm", # Replace with actual cipher
+            "password": "password"   # Replace with actual password
+        }
+    except Exception as e:
+        print(f"Error parsing Shadowsocks key: {url}, Reason: {e}")
         return None
 
 def test_proxy(proxy):
@@ -156,7 +205,7 @@ def main():
     with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
         futures = []
         for key in all_keys:
-            proxy = parse_vmess_key(key)
+            proxy = parse_key(key)
             if proxy:
                 futures.append(executor.submit(test_proxy, proxy))
             else:
