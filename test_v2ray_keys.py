@@ -9,7 +9,7 @@ from urllib.parse import urlparse
 from concurrent.futures import ThreadPoolExecutor
 
 # --- Configuration ---
-SOURCE_URLS = {
+DEFAULT_SOURCE_URLS = {
     "key1": "https://raw.githubusercontent.com/Surfboardv2ray/TGParse/main/splitted/ss",
     "key2": "https://raw.githubusercontent.com/MhdiTaheri/V2rayCollector/main/sub/mixbase64",
     "key3": "https://raw.githubusercontent.com/miladtahanian/V2RayCFGDumper/main/config.txt",
@@ -25,6 +25,25 @@ REQUEST_TIMEOUT = 15
 TEST_TIMEOUT = 10
 
 # --- Utility Functions ---
+def get_source_urls_from_env():
+    """Fetch subscription URLs from environment variables or use defaults."""
+    urls = os.getenv("SUBSCRIPTION_URLS")
+    if urls:
+        try:
+            return json.loads(urls)  # Expecting a JSON-formatted string in the environment variable
+        except json.JSONDecodeError as e:
+            print(f"Error parsing SUBSCRIPTION_URLS from environment: {e}")
+    return DEFAULT_SOURCE_URLS
+
+def validate_subscription_url(url):
+    """Validate the subscription URL format."""
+    try:
+        result = urlparse(url)
+        return all([result.scheme, result.netloc])  # Check for valid scheme and domain
+    except Exception as e:
+        print(f"Invalid URL format: {url}, Error: {e}")
+        return False
+
 def parse_vmess_key(url):
     """Parse a VMess key into a Clash-compatible proxy configuration."""
     try:
@@ -96,8 +115,16 @@ def main():
     all_keys = []
     working_proxies = []
 
+    # Fetch subscription URLs
+    source_urls = get_source_urls_from_env()
+    print(f"Using source URLs: {source_urls}")
+
     # Fetch and parse keys
-    for protocol, url in SOURCE_URLS.items():
+    for protocol, url in source_urls.items():
+        if not validate_subscription_url(url):
+            print(f"Skipping invalid URL: {url}")
+            continue
+
         try:
             response = requests.get(url, timeout=REQUEST_TIMEOUT)
             response.raise_for_status()
@@ -115,6 +142,8 @@ def main():
             proxy = parse_vmess_key(key)
             if proxy:
                 futures.append(executor.submit(test_proxy, proxy))
+            else:
+                print(f"Skipping unsupported or invalid key: {key}")
 
         for future in futures:
             try:
