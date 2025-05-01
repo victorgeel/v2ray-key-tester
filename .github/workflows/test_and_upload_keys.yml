@@ -108,20 +108,22 @@ jobs:
             echo "Output directory '${SYNC_DIR}' not found. Skipping R2 sync."
           fi
 
-      # 12. Upload R2 Sync Logs for Debugging
+      # 12. Check if R2 Sync Log Exists
+      - name: Check if R2 Sync Log Exists
+        run: |
+          if [ ! -f "rclone.log" ]; then
+            echo "No rclone log found. Skipping upload."
+            exit 1
+          fi
+
+      # 13. Upload R2 Sync Log
       - name: Upload R2 Sync Logs
         uses: actions/upload-artifact@v3
         with:
           name: r2-sync-logs
           path: rclone.log
-        run: |
-          if [ -f "rclone.log" ]; then
-            echo "Uploading rclone log for debugging..."
-          else
-            echo "No rclone log found to upload!"
-          fi
 
-      # 13. Clean Up Output Directory
+      # 14. Clean Up Output Directory
       - name: Clean up output directory
         run: |
           CLEANUP_DIR="subscription"
