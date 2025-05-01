@@ -44,43 +44,6 @@ def get_latest_clash_version():
 
 # --- Download and Setup Clash ---
 def download_and_extract_clash():
-    """Download and set up Clash binary."""
-    print("Checking/Downloading Clash...")
-    try:
-        system = platform.system().lower()
-        machine = platform.machine().lower()
-
-        # Dynamically fetch the latest Clash version
-        clash_version = get_latest_clash_version()
-        base_url = f"https://github.com/Dreamacro/clash/releases/download/{clash_version}"
-
-        # Determine the correct binary based on the system and architecture
-        if system == "linux" and machine == "x86_64":
-            clash_url = f"{base_url}/clash-linux-amd64"
-        elif system == "linux" and machine == "aarch64":
-            clash_url = f"{base_url}/clash-linux-arm64"
-        elif system == "darwin":
-            clash_url = f"{base_url}/clash-darwin-amd64"
-        elif system == "windows":
-            clash_url = f"{base_url}/clash-windows-amd64.exe"
-        else:
-            raise ValueError(f"Unsupported system or architecture: {system} {machine}")
-
-        print(f"Downloading Clash from {clash_url}...")
-        response = requests.get(clash_url, stream=True, timeout=REQUEST_TIMEOUT)
-        response.raise_for_status()
-
-        with open(CLASH_PATH, "wb") as clash_file:
-            for chunk in response.iter_content(chunk_size=8192):
-                clash_file.write(chunk)
-
-        if system != "windows":
-            os.chmod(CLASH_PATH, 0o755)
-        print("Clash downloaded and set up successfully.")
-        return True
-    except Exception as e:
-        print(f"Failed to download Clash: {e}")
-        return False
 
 
 # --- Generate Clash Configuration ---
@@ -90,7 +53,53 @@ def generate_clash_config(keys):
     for key in keys:
         protocol, url = key
         if protocol == "vmess":
-            try:
+         def download_and_extract_clash():
+    """Download and set up Clash binary from archived links."""
+    print("Checking/Downloading Clash...")
+    try:
+        system = platform.system().lower()
+        machine = platform.machine().lower()
+
+        # Set the base URL for archived links
+        base_url = "https://web.archive.org/web/20231003084307/https://github.com/Dreamacro/clash/releases/download/v1.18.0"
+
+        # Determine the correct binary based on the system and architecture
+        if system == "linux" and machine == "x86_64":
+            clash_url = f"{base_url}/clash-linux-amd64-v1.18.0.gz"
+        elif system == "linux" and machine == "aarch64":
+            clash_url = f"{base_url}/clash-linux-arm64-v1.18.0.gz"
+        elif system == "darwin" and machine == "x86_64":
+            clash_url = f"{base_url}/clash-darwin-amd64-v1.18.0.gz"
+        elif system == "darwin" and machine == "arm64":
+            clash_url = f"{base_url}/clash-darwin-arm64-v1.18.0.gz"
+        elif system == "windows":
+            clash_url = f"{base_url}/clash-windows-amd64-v1.18.0.gz"
+        else:
+            raise ValueError(f"Unsupported system or architecture: {system} {machine}")
+
+        print(f"Downloading Clash from {clash_url}...")
+        response = requests.get(clash_url, stream=True, timeout=REQUEST_TIMEOUT)
+        response.raise_for_status()
+
+        # Save the downloaded file
+        compressed_path = f"{CLASH_PATH}.gz"
+        with open(compressed_path, "wb") as clash_file:
+            for chunk in response.iter_content(chunk_size=8192):
+                clash_file.write(chunk)
+
+        # Decompress the file
+        print(f"Decompressing {compressed_path}...")
+        import gzip
+        with gzip.open(compressed_path, "rb") as f_in:
+            with open(CLASH_PATH, "wb") as f_out:
+                f_out.write(f_in.read())
+        os.chmod(CLASH_PATH, 0o755)
+        os.remove(compressed_path)
+        print("Clash downloaded and set up successfully.")
+        return True
+    except Exception as e:
+        print(f"Failed to download Clash: {e}")
+        return False   try:
                 vmess_data = json.loads(base64.b64decode(url[8:]).decode("utf-8"))
                 proxies.append({
                     "name": f"vmess-{vmess_data['ps']}",
