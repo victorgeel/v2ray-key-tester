@@ -2,12 +2,11 @@ import requests
 import subprocess
 import os
 import json
-import platform
+import base64
 import yaml
 import time
-import base64
-from urllib.parse import urlparse, unquote_plus
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from urllib.parse import urlparse
+from concurrent.futures import ThreadPoolExecutor
 
 # --- Configuration ---
 SOURCE_URLS = {
@@ -19,56 +18,15 @@ SOURCE_URLS = {
     "key6": "https://raw.githubusercontent.com/roosterkid/openproxylist/main/V2RAY.txt",
 }
 OUTPUT_DIR = "subscription"
-CLASH_PATH = "./clash"
+WORKING_KEYS_FILE = "working_subscription.txt"
+CLASH_CONFIG_FILE = "clash_config.yaml"
 MAX_WORKERS = 15
 REQUEST_TIMEOUT = 15
-TEST_TIMEOUT = 30  # Increased timeout for Clash test
-MAX_RETRIES = 3
-RETRY_DELAY = 5  # seconds
+TEST_TIMEOUT = 10
 
 # --- Utility Functions ---
-def retry_request(url, retries=MAX_RETRIES):
-    """Retry logic for network-related requests."""
-    for attempt in range(retries):
-        try:
-            response = requests.get(url, timeout=REQUEST_TIMEOUT)
-            response.raise_for_status()
-            return response
-        except requests.exceptions.RequestException as e:
-            print(f"Attempt {attempt + 1} failed for {url}: {e}")
-            if attempt < retries - 1:
-                print(f"Retrying in {RETRY_DELAY} seconds...")
-                time.sleep(RETRY_DELAY)
-    raise RuntimeError(f"Failed to fetch {url} after {retries} attempts.")
-
-def parse_vless_key(url):
-    """Parse a VLESS key and return a valid Clash proxy configuration."""
-    try:
-        parsed = urlparse(url)
-        query = dict(qc.split("=") for qc in parsed.query.split("&") if "=" in qc)
-        return {
-            "name": f"vless-{parsed.hostname}",
-            "type": "vless",
-            "server": parsed.hostname,
-            "port": int(parsed.port or 443),
-            "uuid": parsed.username,
-            "cipher": "auto",
-            "tls": query.get("security", "none") == "tls",
-            "network": query.get("type", "tcp"),
-            "ws-opts": {
-                "path": query.get("path", "/"),
-                "headers": {"Host": query.get("host", "")},
-            } if query.get("type") == "ws" else None,
-            "grpc-opts": {
-                "grpc-service-name": query.get("serviceName", ""),
-            } if query.get("type") == "grpc" else None,
-        }
-    except Exception as e:
-        print(f"Error parsing VLESS key: {url}, Error: {e}")
-        return None
-
 def parse_vmess_key(url):
-    """Parse a VMess key and return a valid Clash proxy configuration."""
+    """Parse a VMess key into a Clash-compatible proxy configuration."""
     try:
         vmess_data = json.loads(base64.b64decode(url[8:]).decode("utf-8"))
         return {
@@ -85,35 +43,47 @@ def parse_vmess_key(url):
         print(f"Error parsing VMess key: {url}, Error: {e}")
         return None
 
-def generate_clash_config(keys):
-    """Generate a Clash config file for testing keys."""
-    proxies = []
-    for protocol, url in keys:
-        try:
-            if protocol == "vmess":
-                proxy = parse_vmess_key(url)
-            elif protocol == "vless":
-                proxy = parse_vless_key(url)
-            else:
-                print(f"Unsupported protocol: {protocol}")
-                continue
-            if proxy:
-                proxies.append(proxy)
-        except Exception as e:
-            print(f"Error parsing key: {url}, Error: {e}")
+def test_proxy(proxy):
+    """Simulate GUI-like testing for a proxy (e.g., TCP connection, latency)."""
+    try:
+        server = proxy["server"]
+        port = proxy["port"]
+        start_time = time.time()
 
-    # Add a default proxy group even if no proxies are found
+        # Test TCP connectivity
+        result = subprocess.run(
+            ["nc", "-zv", server, str(port)],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            timeout=TEST_TIMEOUT,
+        )
+
+        latency = (time.time() - start_time) * 1000  # Convert to milliseconds
+        if result.returncode == 0:
+            print(f"Proxy {proxy['name']} is working! Latency: {latency:.2f}ms")
+            return True, latency
+        else:
+            print(f"Proxy {proxy['name']} failed connectivity test.")
+            return False, None
+    except Exception as e:
+        print(f"Error testing proxy {proxy['name']}: {e}")
+        return False, None
+
+def generate_clash_config(proxies):
+    """Generate a Clash configuration file."""
     clash_config = {
         "proxies": proxies,
-        "proxy-groups": [{
-            "name": "auto",
-            "type": "select",
-            "proxies": [p["name"] for p in proxies] if proxies else ["DIRECT"],  # Fallback to DIRECT if no proxies
-        }],
+        "proxy-groups": [
+            {
+                "name": "auto",
+                "type": "select",
+                "proxies": [proxy["name"] for proxy in proxies] if proxies else ["DIRECT"],  # Fallback to DIRECT
+            }
+        ],
         "rules": ["MATCH,auto"],
     }
 
-    with open("clash_config.yaml", "w") as config_file:
+    with open(CLASH_CONFIG_FILE, "w") as config_file:
         yaml.dump(clash_config, config_file, default_flow_style=False)
 
     if not proxies:
@@ -124,34 +94,47 @@ def generate_clash_config(keys):
 def main():
     print("Starting V2Ray Key Testing Script...")
     all_keys = []
+    working_proxies = []
 
-    # Fetch and validate keys
+    # Fetch and parse keys
     for protocol, url in SOURCE_URLS.items():
         try:
-            response = retry_request(url)
-            print(f"Fetched content from {url}: {response.text[:500]}")  # Debugging output
+            response = requests.get(url, timeout=REQUEST_TIMEOUT)
+            response.raise_for_status()
             keys = [line.strip() for line in response.text.splitlines() if line.strip()]
-            all_keys.extend([(protocol, key) for key in keys])
+            all_keys.extend(keys)
         except Exception as e:
             print(f"Failed to fetch keys from {url}: {e}")
 
     print(f"Total fetched keys: {len(all_keys)}")
-    for protocol, key in all_keys[:5]:  # Debug first 5 keys
-        print(f"Protocol: {protocol}, Key: {key}")
 
-    # Generate and test Clash configuration
-    if not all_keys:
-        print("No keys fetched. Exiting.")
-        return
+    # Test keys and collect working ones
+    with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
+        futures = []
+        for key in all_keys:
+            proxy = parse_vmess_key(key)
+            if proxy:
+                futures.append(executor.submit(test_proxy, proxy))
 
-    num_proxies = generate_clash_config(all_keys)
-    print(f"Generated Clash config with {num_proxies} proxies.")
+        for future in futures:
+            try:
+                is_working, latency = future.result()
+                if is_working:
+                    working_proxies.append(proxy)
+            except Exception as e:
+                print(f"Error in proxy testing: {e}")
 
-    if num_proxies == 0:
-        print("No valid proxies found. Skipping Clash test.")
-        return
+    print(f"Total working proxies: {len(working_proxies)}")
 
-    print("Key testing completed successfully.")
+    # Save working keys
+    os.makedirs(OUTPUT_DIR, exist_ok=True)
+    with open(os.path.join(OUTPUT_DIR, WORKING_KEYS_FILE), "w") as working_file:
+        for proxy in working_proxies:
+            working_file.write(f"{proxy}\n")
+
+    # Generate Clash configuration
+    generate_clash_config(working_proxies)
+    print(f"Clash configuration saved to '{CLASH_CONFIG_FILE}'.")
 
 if __name__ == "__main__":
     main()
