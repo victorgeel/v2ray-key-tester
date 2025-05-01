@@ -158,18 +158,22 @@ def generate_clash_config(keys):
             except Exception as e:
                 print(f"Error parsing SS key: {e}")
 
+    # Add a default proxy group even if no proxies are found
     clash_config = {
         "proxies": proxies,
         "proxy-groups": [{
             "name": "auto",
             "type": "select",
-            "proxies": [p["name"] for p in proxies],
+            "proxies": [p["name"] for p in proxies] if proxies else ["DIRECT"],  # Fallback to DIRECT if no proxies
         }],
         "rules": ["MATCH,auto"],
     }
 
     with open("clash_config.yaml", "w") as config_file:
         yaml.dump(clash_config, config_file, default_flow_style=False)
+
+    if not proxies:
+        print("Warning: No proxies were added to the Clash configuration.")
     return len(proxies)
 
 
