@@ -1,16 +1,15 @@
-# Workflow Name
 name: Test V2Ray Keys and Upload to R2 & GitHub
 
 on:
   schedule:
-    - cron: '*/15 * * * *' # Runs every 15 minutes
+    - cron: '0 * * * *' # Runs at the start of every hour
   workflow_dispatch: # Allows manual triggering
 
 jobs:
   test-and-upload:
     runs-on: ubuntu-latest
     steps:
-      # 1. Repository Checkout
+      # 1. Checkout repository
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
@@ -32,61 +31,67 @@ jobs:
         with:
           python-version: '3.10'
 
-      # 4. Install dependencies
+      # 4. Install Python dependencies
       - name: Install Python dependencies
         run: pip install -r requirements.txt
 
-      # 5. Run the Python script
+      # 5. Run V2Ray Key Tester Script
       - name: Run V2Ray Key Tester Script
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: python test_v2ray_keys.py
 
-      # 6. Verify subscription directory
-      - name: Verify subscription directory
+      # 6. Verify log file existence
+      - name: Verify log file existence
         run: |
-          if [ -d "./subscription" ]; then
-            echo "Directory exists. Listing contents:"
-            ls -l ./subscription
+          if [ -f subscription/job-logs.txt ]; then
+            echo "Log file exists: subscription/job-logs.txt"
           else
-            echo "Directory 'subscription' does not exist!"
+            echo "Log file does not exist!"
             exit 1
           fi
 
       # 7. Upload logs for debugging
       - name: Upload logs for debugging
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4.6.2
         with:
           name: script-logs
           path: subscription/job-logs.txt
 
-      # 8. Commit and Push Subscription Files
-      - name: Commit and Push Subscription Files to Repo
+      # 8. Verify subscription directory
+      - name: Verify subscription directory
+        run: |
+          if [ -d "subscription" ]; then
+            echo "Subscription directory exists."
+          else
+            echo "Subscription directory does not exist. Creating it..."
+            mkdir subscription
+          fi
+
+      # 9. Commit and Push Subscription Files (if changes exist)
+      - name: Commit and Push Subscription Files
         run: |
           SUB_DIR="subscription"
-          if [ ! -d "${SUB_DIR}" ]; then
-            echo "Directory '${SUB_DIR}' not found. Skipping Git commit."
-          else
+          if [ -d "${SUB_DIR}" ]; then
             git config --global user.name 'github-actions[bot]'
             git config --global user.email 'github-actions[bot]@users.noreply.github.com'
             git add ${SUB_DIR}/*
-            git commit -m "Force update subscription files in ${SUB_DIR} [skip ci]" || echo "No changes to commit."
-            git remote set-url origin https://x-access-token:${{ secrets.PAT }}@github.com/${{ github.repository }}
-            git push origin HEAD:${{ github.ref_name }}
+            git commit -m "Update subscription files [skip ci]" || echo "No changes to commit."
+            git push || echo "No changes pushed."
           fi
 
-      # 9. Install Rclone with caching
-      - name: Install rclone
+      # 10. Install Rclone
+      - name: Install Rclone
         run: |
-          sudo apt-get update && sudo apt-get install -y rclone
+          sudo apt-get update
+          sudo apt-get install -y rclone
 
-      # 10. Configure Rclone for Cloudflare R2
-      - name: Configure rclone for Cloudflare R2
+      # 11. Configure Rclone for Cloudflare R2
+      - name: Configure Rclone for Cloudflare R2
         env:
           R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
           R2_ENDPOINT: ${{ secrets.R2_ENDPOINT }}
-          R2_BUCKET_NAME: ${{ secrets.R2_BUCKET_NAME }}
         run: |
           rclone config create R2 s3 \
             provider=Cloudflare \
@@ -95,38 +100,27 @@ jobs:
             endpoint=$R2_ENDPOINT \
             acl=public-read
 
-      # 11. Sync to R2 Bucket
-      - name: Sync working key files to R2 Bucket
+      # 12. Sync Files to R2 Bucket
+      - name: Sync Files to R2 Bucket
         env:
           R2_BUCKET_NAME: ${{ secrets.R2_BUCKET_NAME }}
         run: |
-          SYNC_DIR="subscription"
-          if [ -d "./${SYNC_DIR}" ]; then
-            echo "Syncing ${SYNC_DIR} to R2 bucket..."
-            rclone sync ./${SYNC_DIR} R2:${R2_BUCKET_NAME}/ --progress --verbose
+          if [ -d "subscription" ]; then
+            rclone sync subscription R2:${R2_BUCKET_NAME} --progress --verbose
           else
-            echo "Output directory '${SYNC_DIR}' not found. Skipping R2 sync."
+            echo "No subscription directory found. Skipping sync."
           fi
 
-      # 12. Check if R2 Sync Log Exists
-      - name: Check if R2 Sync Log Exists
-        run: |
-          if [ ! -f "rclone.log" ]; then
-            echo "No rclone log found. Skipping upload."
-            exit 1
-          fi
-
-      # 13. Upload R2 Sync Log
-      - name: Upload R2 Sync Logs
-        uses: actions/upload-artifact@v3
+      # 13. Upload Rclone Logs (if generated)
+      - name: Upload Rclone Logs
+        uses: actions/upload-artifact@v4.6.2
         with:
-          name: r2-sync-logs
+          name: rclone-logs
           path: rclone.log
+        if: always()
 
-      # 14. Clean Up Output Directory
-      - name: Clean up output directory
+      # 14. Clean up workspace
+      - name: Clean up workspace
         run: |
-          CLEANUP_DIR="subscription"
-          if [ -d "./${CLEANUP_DIR}" ]; then
-            rm -rf ./${CLEANUP_DIR}
-          fi
+          echo "Cleaning up workspace..."
+          rm -rf subscription
