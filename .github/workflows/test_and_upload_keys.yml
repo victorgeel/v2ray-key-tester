@@ -2,7 +2,7 @@ name: Test V2Ray Keys and Upload to R2 & GitHub
 
 on:
   schedule:
-    - cron: '/15 * * * *' # Runs at the start of every hour
+    - cron: '*/15 * * * *' # Runs at the start of every hour
   workflow_dispatch: # Allows manual triggering
 
 jobs:
