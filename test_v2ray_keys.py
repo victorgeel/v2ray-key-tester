@@ -30,6 +30,18 @@ REQUEST_TIMEOUT = 15
 TEST_TIMEOUT = 20
 
 
+# --- Get Latest Clash Version ---
+def get_latest_clash_version():
+    """Fetch the latest Clash release version from GitHub."""
+    try:
+        response = requests.get("https://api.github.com/repos/Dreamacro/clash/releases/latest", timeout=REQUEST_TIMEOUT)
+        response.raise_for_status()
+        return response.json()["tag_name"]
+    except Exception as e:
+        print(f"Error fetching latest Clash version: {e}")
+        return "v1.21.0"  # Fallback to a known stable version
+
+
 # --- Download and Setup Clash ---
 def download_and_extract_clash():
     """Download and set up Clash binary."""
@@ -69,6 +81,7 @@ def download_and_extract_clash():
     except Exception as e:
         print(f"Failed to download Clash: {e}")
         return False
+
 
 # --- Generate Clash Configuration ---
 def generate_clash_config(keys):
