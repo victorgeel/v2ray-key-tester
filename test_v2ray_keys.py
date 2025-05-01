@@ -2,8 +2,6 @@ import requests
 import subprocess
 import os
 import json
-import tempfile
-import time
 import platform
 import yaml
 from urllib.parse import urlparse, unquote_plus
@@ -14,8 +12,8 @@ SOURCE_URLS = {
     "key1": "https://raw.githubusercontent.com/Surfboardv2ray/TGParse/main/splitted/ss",
     "key2": "https://raw.githubusercontent.com/MhdiTaheri/V2rayCollector/main/sub/mixbase64",
     "key3": "https://raw.githubusercontent.com/miladtahanian/V2RayCFGDumper/main/config.txt",
-    "key5": "https://raw.githubusercontent.com/SoliSpirit/v2ray-configs/main/Countries/United_States.txt",
     "key4": "https://raw.githubusercontent.com/MrMohebi/xray-proxy-grabber-telegram/master/collected-proxies/row-url/all.txt",
+    "key5": "https://raw.githubusercontent.com/SoliSpirit/v2ray-configs/main/Countries/United_States.txt",
     "key6": "https://raw.githubusercontent.com/roosterkid/openproxylist/main/V2RAY.txt",
     "hk": "https://raw.githubusercontent.com/SoliSpirit/v2ray-configs/main/Countries/Hong_Kong.txt",
     "jp": "https://raw.githubusercontent.com/SoliSpirit/v2ray-configs/main/Countries/Japan.txt",
@@ -39,12 +37,22 @@ def download_and_extract_clash():
     try:
         system = platform.system().lower()
         machine = platform.machine().lower()
-        clash_url = "https://github.com/Dreamacro/clash/releases/latest/download/clash-linux-amd64"
 
-        if system == "windows":
-            clash_url = "https://github.com/Dreamacro/clash/releases/latest/download/clash-windows-amd64.exe"
+        # Specify the Clash version to download
+        clash_version = "v1.21.0"  # Replace with the latest stable version
+        base_url = f"https://github.com/Dreamacro/clash/releases/download/{clash_version}"
+
+        # Determine the correct binary based on the system and architecture
+        if system == "linux" and machine == "x86_64":
+            clash_url = f"{base_url}/clash-linux-amd64"
+        elif system == "linux" and machine == "aarch64":
+            clash_url = f"{base_url}/clash-linux-arm64"
         elif system == "darwin":
-            clash_url = "https://github.com/Dreamacro/clash/releases/latest/download/clash-darwin-amd64"
+            clash_url = f"{base_url}/clash-darwin-amd64"
+        elif system == "windows":
+            clash_url = f"{base_url}/clash-windows-amd64.exe"
+        else:
+            raise ValueError(f"Unsupported system or architecture: {system} {machine}")
 
         print(f"Downloading Clash from {clash_url}...")
         response = requests.get(clash_url, stream=True, timeout=REQUEST_TIMEOUT)
@@ -67,11 +75,11 @@ def download_and_extract_clash():
 def generate_clash_config(keys):
     """Generate a Clash config file for testing keys."""
     proxies = []
-    for protocol, key in keys:
+    for key in keys:
+        protocol, url = key
         if protocol == "vmess":
-            # Parse VMess key to extract details
             try:
-                vmess_data = json.loads(base64.b64decode(key[8:]).decode("utf-8"))
+                vmess_data = json.loads(base64.b64decode(url[8:]).decode("utf-8"))
                 proxies.append({
                     "name": f"vmess-{vmess_data['ps']}",
                     "type": "vmess",
@@ -85,8 +93,7 @@ def generate_clash_config(keys):
             except Exception as e:
                 print(f"Error parsing VMess key: {e}")
         elif protocol == "vless":
-            # Parse VLess key to extract details
-            parsed = urlparse(key)
+            parsed = urlparse(url)
             proxies.append({
                 "name": f"vless-{parsed.hostname}",
                 "type": "vless",
@@ -97,8 +104,7 @@ def generate_clash_config(keys):
                 "tls": True,
             })
         elif protocol == "trojan":
-            # Parse Trojan key to extract details
-            parsed = urlparse(key)
+            parsed = urlparse(url)
             proxies.append({
                 "name": f"trojan-{parsed.hostname}",
                 "type": "trojan",
@@ -108,9 +114,8 @@ def generate_clash_config(keys):
                 "tls": True,
             })
         elif protocol == "ss":
-            # Parse Shadowsocks key to extract details
             try:
-                parsed = urlparse(key)
+                parsed = urlparse(url)
                 method, password = base64.b64decode(parsed.username).decode("utf-8").split(":")
                 proxies.append({
                     "name": f"ss-{parsed.hostname}",
