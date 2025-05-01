@@ -4,6 +4,7 @@ import os
 import json
 import platform
 import yaml
+import time
 from urllib.parse import urlparse, unquote_plus
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
@@ -28,30 +29,28 @@ CLASH_PATH = "./clash"
 MAX_WORKERS = 15
 REQUEST_TIMEOUT = 15
 TEST_TIMEOUT = 20
+MAX_RETRIES = 3
+RETRY_DELAY = 5  # seconds
 
 
-# --- Get Latest Clash Version ---
-def get_latest_clash_version():
-    """Fetch the latest Clash release version from GitHub."""
-    try:
-        response = requests.get("https://api.github.com/repos/Dreamacro/clash/releases/latest", timeout=REQUEST_TIMEOUT)
-        response.raise_for_status()
-        return response.json()["tag_name"]
-    except Exception as e:
-        print(f"Error fetching latest Clash version: {e}")
-        return "v1.21.0"  # Fallback to a known stable version
+# --- Utility Functions ---
+def retry_request(url, retries=MAX_RETRIES):
+    """Retry logic for network-related requests."""
+    for attempt in range(retries):
+        try:
+            response = requests.get(url, timeout=REQUEST_TIMEOUT)
+            response.raise_for_status()
+            return response
+        except requests.exceptions.RequestException as e:
+            print(f"Attempt {attempt + 1} failed for {url}: {e}")
+            if attempt < retries - 1:
+                print(f"Retrying in {RETRY_DELAY} seconds...")
+                time.sleep(RETRY_DELAY)
+    raise RuntimeError(f"Failed to fetch {url} after {retries} attempts.")
 
 
-
-
-# --- Generate Clash Configuration ---
-def generate_clash_config(keys):
-    """Generate a Clash config file for testing keys."""
-    proxies = []
-    for key in keys:
-        protocol, url = key
-        if protocol == "vmess":
-         def download_and_extract_clash():
+# --- Download and Setup Clash ---
+def download_and_extract_clash():
     """Download and set up Clash binary from archived links."""
     print("Checking/Downloading Clash...")
     try:
@@ -72,18 +71,20 @@ def generate_clash_config(keys):
             clash_url = f"{base_url}/clash-darwin-arm64-v1.18.0.gz"
         elif system == "windows":
             clash_url = f"{base_url}/clash-windows-amd64-v1.18.0.gz"
+        elif system == "freebsd" and machine == "x86_64":
+            clash_url = f"{base_url}/clash-freebsd-amd64-v1.18.0.gz"
+        elif system == "freebsd" and machine == "i386":
+            clash_url = f"{base_url}/clash-freebsd-386-v1.18.0.gz"
         else:
             raise ValueError(f"Unsupported system or architecture: {system} {machine}")
 
         print(f"Downloading Clash from {clash_url}...")
-        response = requests.get(clash_url, stream=True, timeout=REQUEST_TIMEOUT)
-        response.raise_for_status()
+        response = retry_request(clash_url)
 
         # Save the downloaded file
         compressed_path = f"{CLASH_PATH}.gz"
         with open(compressed_path, "wb") as clash_file:
-            for chunk in response.iter_content(chunk_size=8192):
-                clash_file.write(chunk)
+            clash_file.write(response.content)
 
         # Decompress the file
         print(f"Decompressing {compressed_path}...")
@@ -97,7 +98,17 @@ def generate_clash_config(keys):
         return True
     except Exception as e:
         print(f"Failed to download Clash: {e}")
-        return False   try:
+        return False
+
+
+# --- Generate Clash Configuration ---
+def generate_clash_config(keys):
+    """Generate a Clash config file for testing keys."""
+    proxies = []
+    for key in keys:
+        protocol, url = key
+        if protocol == "vmess":
+            try:
                 vmess_data = json.loads(base64.b64decode(url[8:]).decode("utf-8"))
                 proxies.append({
                     "name": f"vmess-{vmess_data['ps']}",
@@ -199,8 +210,7 @@ def main():
     all_keys = []
     for protocol, url in SOURCE_URLS.items():
         try:
-            response = requests.get(url, timeout=REQUEST_TIMEOUT)
-            response.raise_for_status()
+            response = retry_request(url)
             keys = [line.strip() for line in response.text.splitlines() if line.strip()]
             all_keys.extend([(protocol, key) for key in keys])
         except Exception as e:
