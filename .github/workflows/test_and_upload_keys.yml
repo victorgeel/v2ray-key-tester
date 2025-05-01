@@ -46,7 +46,7 @@ jobs:
           fi
 
       - name: Upload logs for debugging
-        uses: actions/upload-artifact@v3.1.2 # Replace with a stable version
+        uses: actions/upload-artifact@v4.6.2 # Replace with a stable version
         with:
           name: script-logs
           path: subscription/job-logs.txt
