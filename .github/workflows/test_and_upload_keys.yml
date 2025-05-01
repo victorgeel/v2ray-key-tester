@@ -42,14 +42,25 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: python test_v2ray_keys.py
 
-      # 6. Upload logs for debugging
+      # 6. Verify subscription directory
+      - name: Verify subscription directory
+        run: |
+          if [ -d "./subscription" ]; then
+            echo "Directory exists. Listing contents:"
+            ls -l ./subscription
+          else
+            echo "Directory 'subscription' does not exist!"
+            exit 1
+          fi
+
+      # 7. Upload logs for debugging
       - name: Upload logs for debugging
         uses: actions/upload-artifact@v3
         with:
           name: script-logs
           path: subscription/job-logs.txt
 
-      # 7. Commit and Push Subscription Files
+      # 8. Commit and Push Subscription Files
       - name: Commit and Push Subscription Files to Repo
         run: |
           SUB_DIR="subscription"
@@ -64,12 +75,12 @@ jobs:
             git push origin HEAD:${{ github.ref_name }}
           fi
 
-      # 8. Install Rclone with caching
+      # 9. Install Rclone with caching
       - name: Install rclone
         run: |
           sudo apt-get update && sudo apt-get install -y rclone
 
-      # 9. Configure Rclone for Cloudflare R2
+      # 10. Configure Rclone for Cloudflare R2
       - name: Configure rclone for Cloudflare R2
         env:
           R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
@@ -84,19 +95,33 @@ jobs:
             endpoint=$R2_ENDPOINT \
             acl=public-read
 
-      # 10. Sync to R2 Bucket
+      # 11. Sync to R2 Bucket
       - name: Sync working key files to R2 Bucket
         env:
           R2_BUCKET_NAME: ${{ secrets.R2_BUCKET_NAME }}
         run: |
           SYNC_DIR="subscription"
           if [ -d "./${SYNC_DIR}" ]; then
+            echo "Syncing ${SYNC_DIR} to R2 bucket..."
             rclone sync ./${SYNC_DIR} R2:${R2_BUCKET_NAME}/ --progress --verbose
           else
             echo "Output directory '${SYNC_DIR}' not found. Skipping R2 sync."
           fi
 
-      # 11. Clean up output directory
+      # 12. Upload R2 Sync Logs for Debugging
+      - name: Upload R2 Sync Logs
+        uses: actions/upload-artifact@v3
+        with:
+          name: r2-sync-logs
+          path: rclone.log
+        run: |
+          if [ -f "rclone.log" ]; then
+            echo "Uploading rclone log for debugging..."
+          else
+            echo "No rclone log found to upload!"
+          fi
+
+      # 13. Clean Up Output Directory
       - name: Clean up output directory
         run: |
           CLEANUP_DIR="subscription"
