@@ -47,7 +47,23 @@ def validate_subscription_url(url):
 def parse_vmess_key(url):
     """Parse a VMess key into a Clash-compatible proxy configuration."""
     try:
-        vmess_data = json.loads(base64.b64decode(url[8:]).decode("utf-8"))
+        # Ensure the key starts with "vmess://"
+        if not url.startswith("vmess://"):
+            raise ValueError("Key does not start with 'vmess://'")
+
+        # Base64 decode the key
+        decoded_data = base64.b64decode(url[8:]).decode("utf-8")
+
+        # Parse the decoded JSON data
+        vmess_data = json.loads(decoded_data)
+
+        # Ensure required fields are present
+        required_fields = ["ps", "add", "port", "id"]
+        for field in required_fields:
+            if field not in vmess_data:
+                raise KeyError(f"Missing required field: {field}")
+
+        # Return a Clash-compatible proxy configuration
         return {
             "name": f"vmess-{vmess_data['ps']}",
             "type": "vmess",
@@ -58,8 +74,9 @@ def parse_vmess_key(url):
             "cipher": "auto",
             "tls": vmess_data.get("tls", False),
         }
-    except Exception as e:
-        print(f"Error parsing VMess key: {url}, Error: {e}")
+    except (ValueError, KeyError, json.JSONDecodeError, base64.binascii.Error) as e:
+        # Log specific error details
+        print(f"Error parsing VMess key: {url}, Reason: {e}")
         return None
 
 def test_proxy(proxy):
