@@ -16,70 +16,44 @@ jobs:
           token: ${{ secrets.PAT }}
           persist-credentials: false
 
-      # 2. Cache Python dependencies
-      - name: Cache Python dependencies
-        uses: actions/cache@v3
-        with:
-          path: ~/.cache/pip
-          key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
-          restore-keys: |
-            ${{ runner.os }}-pip-
-
-      # 3. Set up Python
+      # 2. Set up Python
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.10'
 
-      # 4. Install Python dependencies
+      # 3. Install Python dependencies
       - name: Install Python dependencies
         run: pip install -r requirements.txt
 
-      # 5. Run V2Ray Key Tester Script
+      # 4. Run V2Ray Key Tester Script
       - name: Run V2Ray Key Tester Script
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: python test_v2ray_keys.py
 
-      # 6. Upload logs for debugging (optional if log file exists)
-      - name: Upload logs for debugging
-        if: always() # Always run this step
-        uses: actions/upload-artifact@v4.6.2
-        with:
-          name: script-logs
-          path: subscription/job-logs.txt
-          if-no-files-found: ignore # Avoid failure if the file does not exist
-      
-      # 8. Verify subscription directory
-      - name: Verify subscription directory
-        run: |
-          if [ -d "subscription" ]; then
-            echo "Subscription directory exists."
-          else
-            echo "Subscription directory does not exist. Creating it..."
-            mkdir subscription
-          fi
-
-      # 9. Commit and Push Subscription Files (if changes exist)
-      - name: Commit and Push Subscription Files
+      # 5. Commit and Push Subscription Files to Repo
+      - name: Commit and Push Subscription Files to Repo
         run: |
           SUB_DIR="subscription"
-          if [ -d "${SUB_DIR}" ]; then
+          if [ ! -d "${SUB_DIR}" ]; then
+            echo "Directory '${SUB_DIR}' not found. Skipping Git commit."
+          else
             git config --global user.name 'github-actions[bot]'
             git config --global user.email 'github-actions[bot]@users.noreply.github.com'
             git add ${SUB_DIR}/*
-            git commit -m "Update subscription files [skip ci]" || echo "No changes to commit."
-            git push || echo "No changes pushed."
+            git commit -m "Update subscription files in ${SUB_DIR} [skip ci]" || echo "No changes to commit."
+            git remote set-url origin https://x-access-token:${{ secrets.PAT }}@github.com/${{ github.repository }}
+            git push origin HEAD:${{ github.ref_name }}
           fi
 
-      # 10. Install Rclone
-      - name: Install Rclone
+      # 6. Install rclone
+      - name: Install rclone
         run: |
-          sudo apt-get update
-          sudo apt-get install -y rclone
+          sudo apt-get update && sudo apt-get install -y rclone
 
-      # 11. Configure Rclone for Cloudflare R2
-      - name: Configure Rclone for Cloudflare R2
+      # 7. Configure rclone for Cloudflare R2
+      - name: Configure rclone for Cloudflare R2
         env:
           R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
@@ -92,27 +66,39 @@ jobs:
             endpoint=$R2_ENDPOINT \
             acl=public-read
 
-      # 12. Sync Files to R2 Bucket
-      - name: Sync Files to R2 Bucket
+      # 8. Sync working key files to R2 Bucket
+      - name: Sync working key files to R2 Bucket
         env:
           R2_BUCKET_NAME: ${{ secrets.R2_BUCKET_NAME }}
         run: |
-          if [ -d "subscription" ]; then
-            rclone sync subscription R2:${R2_BUCKET_NAME} --progress --verbose
+          SYNC_DIR="subscription"
+          if [ -d "./${SYNC_DIR}" ]; then
+            rclone sync ./${SYNC_DIR} R2:${R2_BUCKET_NAME}/ --progress --verbose > rclone.log 2>&1
           else
-            echo "No subscription directory found. Skipping sync."
+            echo "Output directory '${SYNC_DIR}' not found. Skipping R2 sync."
           fi
 
-      # 13. Upload Rclone Logs (if generated)
+      # 9. Verify Rclone Log (Optional)
+      - name: Verify Rclone Log
+        run: |
+          if [ -f "rclone.log" ]; then
+            echo "Rclone log file exists."
+          else
+            echo "Rclone log file does not exist!"
+          fi
+
+      # 10. Upload Rclone Logs for Debugging (Optional)
       - name: Upload Rclone Logs
         uses: actions/upload-artifact@v4.6.2
         with:
           name: rclone-logs
           path: rclone.log
-        if: always()
+          if-no-files-found: warn
 
-      # 14. Clean up workspace
-      - name: Clean up workspace
+      # 11. Clean up output directory
+      - name: Clean up output directory
         run: |
-          echo "Cleaning up workspace..."
-          rm -rf subscription
+          CLEANUP_DIR="subscription"
+          if [ -d "./${CLEANUP_DIR}" ]; then
+            rm -rf ./${CLEANUP_DIR}
+          fi
