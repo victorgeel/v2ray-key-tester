@@ -215,10 +215,16 @@ def main():
     for protocol, url in SOURCE_URLS.items():
         try:
             response = retry_request(url)
+            print(f"Fetched content from {url}: {response.text[:500]}")  # Debugging output
             keys = [line.strip() for line in response.text.splitlines() if line.strip()]
             all_keys.extend([(protocol, key) for key in keys])
         except Exception as e:
             print(f"Failed to fetch keys from {url}: {e}")
+
+    # Debug: Check fetched keys
+    print(f"Total fetched keys: {len(all_keys)}")
+    for protocol, key in all_keys[:5]:  # Print first 5 keys for debugging
+        print(f"Protocol: {protocol}, Key: {key}")
 
     # Generate config and test keys
     if not all_keys:
@@ -228,13 +234,16 @@ def main():
     num_proxies = generate_clash_config(all_keys)
     print(f"Generated Clash config with {num_proxies} proxies.")
 
+    if num_proxies == 0:
+        print("No valid proxies found. Skipping Clash test.")
+        return
+
     if test_keys_with_clash():
         print("Key testing completed successfully.")
     else:
         print("Key testing failed.")
 
     print("Script finished.")
-
 
 if __name__ == "__main__":
     main()
