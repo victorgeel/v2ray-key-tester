@@ -38,8 +38,8 @@ def download_and_extract_clash():
         system = platform.system().lower()
         machine = platform.machine().lower()
 
-        # Specify the Clash version to download
-        clash_version = "v1.21.0"  # Replace with the latest stable version
+        # Dynamically fetch the latest Clash version
+        clash_version = get_latest_clash_version()
         base_url = f"https://github.com/Dreamacro/clash/releases/download/{clash_version}"
 
         # Determine the correct binary based on the system and architecture
@@ -69,7 +69,6 @@ def download_and_extract_clash():
     except Exception as e:
         print(f"Failed to download Clash: {e}")
         return False
-
 
 # --- Generate Clash Configuration ---
 def generate_clash_config(keys):
