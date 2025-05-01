@@ -2,7 +2,7 @@ name: Test V2Ray Keys and Upload to R2 & GitHub
 
 on:
   schedule:
-    - cron: '0 * * * *' # Runs at the start of every hour
+    - cron: '/15 * * * *' # Runs at the start of every hour
   workflow_dispatch: # Allows manual triggering
 
 jobs:
@@ -26,23 +26,26 @@ jobs:
       - name: Install Python dependencies
         run: pip install -r requirements.txt
 
-      # 4. Run V2Ray Key Tester Script
+      # 4. Run V2Ray Key Tester Script and Collect Working Keys
       - name: Run V2Ray Key Tester Script
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: python test_v2ray_keys.py
+        run: |
+          python test_v2ray_keys.py
+          echo "Testing Complete. Working keys saved to 'working_subscription.txt'."
 
       # 5. Commit and Push Subscription Files to Repo
       - name: Commit and Push Subscription Files to Repo
         run: |
           SUB_DIR="subscription"
+          WORKING_KEYS="working_subscription.txt"
           if [ ! -d "${SUB_DIR}" ]; then
             echo "Directory '${SUB_DIR}' not found. Skipping Git commit."
           else
             git config --global user.name 'github-actions[bot]'
             git config --global user.email 'github-actions[bot]@users.noreply.github.com'
-            git add ${SUB_DIR}/*
-            git commit -m "Update subscription files in ${SUB_DIR} [skip ci]" || echo "No changes to commit."
+            git add ${SUB_DIR}/* ${WORKING_KEYS}
+            git commit -m "Update subscription files and working keys [skip ci]" || echo "No changes to commit."
             git remote set-url origin https://x-access-token:${{ secrets.PAT }}@github.com/${{ github.repository }}
             git push origin HEAD:${{ github.ref_name }}
           fi
@@ -72,10 +75,12 @@ jobs:
           R2_BUCKET_NAME: ${{ secrets.R2_BUCKET_NAME }}
         run: |
           SYNC_DIR="subscription"
+          WORKING_KEYS="working_subscription.txt"
           if [ -d "./${SYNC_DIR}" ]; then
             rclone sync ./${SYNC_DIR} R2:${R2_BUCKET_NAME}/ --progress --verbose > rclone.log 2>&1
-          else
-            echo "Output directory '${SYNC_DIR}' not found. Skipping R2 sync."
+          fi
+          if [ -f "./${WORKING_KEYS}" ]; then
+            rclone copy ./${WORKING_KEYS} R2:${R2_BUCKET_NAME}/ --progress --verbose >> rclone.log 2>&1
           fi
 
       # 9. Verify Rclone Log (Optional)
