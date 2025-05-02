@@ -16,8 +16,10 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
-          token: ${{ secrets.PAT }} # Ensure this secret is set in repo settings.
-          persist-credentials: false
+          # Use PAT for push access. Ensure this secret is set in repo settings.
+          # The user needs write permission on the repo.
+          token: ${{ secrets.PAT }}
+          persist-credentials: false # Don't persist default creds
           fetch-depth: 0 # Fetch all history to check for changes before committing
 
       # 2. Set up Python
@@ -36,7 +38,7 @@ jobs:
       # Choose ONE of the following binary download steps (either Xray or V2Ray)
 
       - name: Download and Setup Xray Binary
-        id: setup_binary # Give this step an ID to reference later
+        id: setup_binary # Give this step an ID to reference later (used in 'needs' at job level if needed, but not here)
         run: |
           XRAY_VERSION="1.8.7" # <<--- Use a specific Xray version
           ASSET_NAME="Xray-linux-64.zip"
@@ -91,11 +93,10 @@ jobs:
 
       # 5. Run V2Ray Key Tester Script
       - name: Run V2Ray Key Tester Script
-        # This step depends on the binary setup step
-        needs: setup_binary
+        # No 'needs' here, relies on sequential execution.
+        # If step 4 fails, this step won't run (default behavior).
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # Pass the subscription URLs secret as an environment variable
           SUBSCRIPTION_URLS: ${{ secrets.SUBSCRIPTION_URLS }}
           # V2RAY_BINARY_PATH is already set in the previous step via $GITHUB_ENV
         run: |
@@ -127,16 +128,17 @@ jobs:
             echo "Found working keys."
           else
             echo "No working keys found or file ${WORKING_KEYS_FILE_FULL_PATH} is empty."
-            # Optionally exit with a non-zero code here if finding working keys is mandatory
+            # Optionally exit with a non-zero code if finding working keys is mandatory
             # exit 1
           fi
 
 
-      # --- NEW STEP: Set Output Directory as Environment Variable ---
+      # --- Set Output Directory as Environment Variable ---
       # This step captures the OUTPUT_DIR value from the Python script
       # and sets it as an environment variable for subsequent steps.
       - name: Set Output Directory Env Var
-        needs: test-and-upload # Depends on the previous step
+        # No 'needs' here, relies on sequential execution after Step 5.
+        # If Step 5 fails, this step won't run (default behavior).
         run: |
           # Get the OUTPUT_DIR path again from the Python script
           OUTPUT_DIR_FROM_SCRIPT=$(python -c "import test_v2ray_keys; print(test_v2ray_keys.OUTPUT_DIR)")
@@ -147,9 +149,8 @@ jobs:
 
       # 6. Commit and Push Subscription Files to Repo
       - name: Commit and Push Subscription Files to Repo
-        # Depends on the 'Set Output Directory Env Var' step
-        needs: Set-Output-Directory-Env-Var
-        # Use a condition to skip if no changes
+        # No 'needs' here, relies on sequential execution after 'Set Output Directory Env Var'.
+        # If 'Set Output Directory Env Var' fails, this step won't run (default behavior).
         env:
           # OUTPUT_DIR_PYTHON is now available from the environment
           OUTPUT_DIR_PYTHON: ${{ env.OUTPUT_DIR_PYTHON }}
@@ -185,31 +186,31 @@ jobs:
 
       # 7. Install rclone
       - name: Install rclone
-        # Depends on the 'Set Output Directory Env Var' step
-        needs: Set-Output-Directory-Env-Var # Or needs: test-and-upload depending on dependency chain
-
+        # No 'needs' here, relies on sequential execution.
+        # If previous steps fail, this step won't run (default behavior).
         run: |
           sudo apt-get update && sudo apt-get install -y rclone
 
       # 8. Configure rclone for Cloudflare R2
       - name: Configure rclone for Cloudflare R2
-        # Depends on the 'Set Output Directory Env Var' step and rclone install
-        needs: [Set-Output-Directory-Env-Var, install-rclone] # Add install-rclone job/step name if separate
-
-        env:
-          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
-          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
-          R2_ENDPOINT: ${{ secrets.R2_ENDPOINT }} # e.g. https://<ACCOUNT_ID>.r2.cloudflarestorage.com
+        # No 'needs' here, relies on sequential execution.
+        # Relies on rclone being installed and Output Directory Env Var being set by previous steps.
         run: |
+          # Check if R2 secrets are set (basic check)
+          if [ -z "${{ secrets.R2_ACCESS_KEY_ID }}" ] || [ -z "${{ secrets.R2_SECRET_ACCESS_KEY }}" ] || [ -z "${{ secrets.R2_ENDPOINT }}" ]; then
+              echo "R2 secrets are not fully configured. Skipping R2 setup."
+              exit 0 # Exit this step gracefully
+          fi
+
           # Create rclone config file in runner's home directory
           mkdir -p ~/.config/rclone
           cat << EOF > ~/.config/rclone/rclone.conf
           [R2]
           type = s3
           provider = Cloudflare
-          access_key_id = ${R2_ACCESS_KEY_ID}
-          secret_access_key = ${R2_SECRET_ACCESS_KEY}
-          endpoint = ${R2_ENDPOINT}
+          access_key_id = ${{ secrets.R2_ACCESS_KEY_ID }}
+          secret_access_key = ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          endpoint = ${{ secrets.R2_ENDPOINT }}
           acl = public-read
           # Optional: server_side_encryption = AES256
           EOF
@@ -219,13 +220,11 @@ jobs:
 
       # 9. Sync working key files and Clash config to R2 Bucket
       - name: Sync files to R2 Bucket
-        # Depends on R2 config and Output Directory Env Var
-        needs: [configure-rclone, Set-Output-Directory-Env-Var]
-
+        # No 'needs' here, relies on sequential execution.
+        # Relies on R2 config being done and Output Directory Env Var being set.
         env:
           R2_BUCKET_NAME: ${{ secrets.R2_BUCKET_NAME }}
-          # OUTPUT_DIR_PYTHON is now available from the environment
-          OUTPUT_DIR_PYTHON: ${{ env.OUTPUT_DIR_PYTHON }}
+          OUTPUT_DIR_PYTHON: ${{ env.OUTPUT_DIR_PYTHON }} # Use the env var
 
         run: |
           # Check if the output directory exists using the env var
@@ -233,10 +232,16 @@ jobs:
             echo "Output directory '${{ env.OUTPUT_DIR_PYTHON }}' not found or variable not set. Skipping R2 sync."
             exit 0 # Exit this step gracefully
           fi
+          # Check if R2 bucket name secret is set
+          if [ -z "${{ env.R2_BUCKET_NAME }}" ]; then
+              echo "R2 Bucket Name secret is not set. Skipping R2 sync."
+              exit 0 # Exit this step gracefully
+          fi
 
-          echo "Syncing contents of ${{ env.OUTPUT_DIR_PYTHON }} to R2:${R2_BUCKET_NAME}/"
+
+          echo "Syncing contents of ${{ env.OUTPUT_DIR_PYTHON }} to R2:${{ env.R2_BUCKET_NAME }}/"
           # Use sync to make the R2 bucket directory mirror the local output directory
-          rclone sync "${{ env.OUTPUT_DIR_PYTHON }}" "R2:${R2_BUCKET_NAME}/" \
+          rclone sync "${{ env.OUTPUT_DIR_PYTHON }}" "R2:${{ env.R2_BUCKET_NAME }}/" \
             --progress --verbose \
             --retries 3 --low-level-retries 5 --stats 1m \
             > rclone_sync_log.txt 2>&1 || true # Log output, allow failure with || true if you don't want sync errors to fail the job
@@ -268,6 +273,7 @@ jobs:
           fi
 
           # Also clean up binary directory (assuming they are in known locations relative to workspace root)
-          if [ -d "./xray-binary" ]; then echo "Cleaning up ./xray-binary"; rm -rf ./xray-binary; fi
-          if [ -d "./v2ray-binary" ]; then echo "Cleaning up ./v2ray-binary"; rm -rf ./v2ray-binary; fi
+          # Use -f flag with rm -rf for safety if file/dir doesn't exist
+          if [ -d "./xray-binary" ]; then echo "Cleaning up ./xray-binary"; rm -rf -f ./xray-binary; fi
+          if [ -d "./v2ray-binary" ]; then echo "Cleaning up ./v2ray-binary"; rm -rf -f ./v2ray-binary; fi
 
