@@ -1,109 +1,257 @@
+# .github/workflows/test-keys.yml
 name: Test V2Ray Keys and Upload to R2 & GitHub
 
 on:
-  schedule:
-    - cron: '*/15 * * * *' # Runs at the start of every hour
-  workflow_dispatch: # Allows manual triggering
+  # schedule:
+  #   - cron: '*/15 * * * *' # Runs every 15 minutes
+  #   - cron: '0 * * * *' # Runs at the start of every hour (example)
+  workflow_dispatch: # Allows manual triggering from GitHub Actions tab
 
 jobs:
   test-and-upload:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-latest # Use a standard Ubuntu runner
+
     steps:
       # 1. Checkout repository
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
+          # Use PAT for push access. Ensure this secret is set in repo settings.
+          # The user needs write permission on the repo.
           token: ${{ secrets.PAT }}
-          persist-credentials: false
+          persist-credentials: false # Don't persist default creds
+          fetch-depth: 0 # Fetch all history to check for changes before committing
 
       # 2. Set up Python
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.10'
+          python-version: '3.x' # Use a recent Python 3 version (e.g., '3.10', '3.11', '3.12')
 
       # 3. Install Python dependencies
       - name: Install Python dependencies
-        run: pip install -r requirements.txt
-
-      # 4. Run V2Ray Key Tester Script and Collect Working Keys
-      - name: Run V2Ray Key Tester Script
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          python test_v2ray_keys.py
-          echo "Testing Complete. Working keys saved to 'working_subscription.txt'."
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
 
-      # 5. Commit and Push Subscription Files to Repo
-      - name: Commit and Push Subscription Files to Repo
+      # 4. Download and Setup V2Ray/Xray Binary
+      # Choose ONE of the following binary download steps (either Xray or V2Ray)
+
+      - name: Download and Setup Xray Binary
+        id: setup_binary # Give this step an ID to reference later
         run: |
-          SUB_DIR="subscription"
-          WORKING_KEYS="working_subscription.txt"
-          if [ ! -d "${SUB_DIR}" ]; then
-            echo "Directory '${SUB_DIR}' not found. Skipping Git commit."
-          else
-            git config --global user.name 'github-actions[bot]'
-            git config --global user.email 'github-actions[bot]@users.noreply.github.com'
-            git add ${SUB_DIR}/* ${WORKING_KEYS}
-            git commit -m "Update subscription files and working keys [skip ci]" || echo "No changes to commit."
-            git remote set-url origin https://x-access-token:${{ secrets.PAT }}@github.com/${{ github.repository }}
-            git push origin HEAD:${{ github.ref_name }}
+          XRAY_VERSION="1.8.7" # <<--- Use a specific Xray version
+          ASSET_NAME="Xray-linux-64.zip"
+          DOWNLOAD_URL="https://github.com/XTLS/Xray-core/releases/download/v${XRAY_VERSION}/${ASSET_NAME}"
+          DEST_DIR="./xray-binary" # Directory to extract binary
+          BINARY_PATH="${DEST_DIR}/xray" # Expected path after extraction
+
+          echo "Downloading Xray from ${DOWNLOAD_URL}"
+          curl -L ${DOWNLOAD_URL} -o xray.zip
+          mkdir -p ${DEST_DIR} # Create destination directory
+          unzip -o xray.zip -d ${DEST_DIR} # Unzip, -o means overwrite if exists
+
+          # Check if binary exists after extraction
+          if [ ! -f "${BINARY_PATH}" ]; then
+            echo "Error: Xray binary not found at ${BINARY_PATH} after extraction."
+            exit 1 # Fail the job if binary is missing
           fi
 
-      # 6. Install rclone
+          chmod +x ${BINARY_PATH} # Make it executable
+
+          # Set the binary path as an environment variable for the Python script
+          echo "V2RAY_BINARY_PATH=${BINARY_PATH}" >> $GITHUB_ENV
+
+          echo "Xray binary setup complete."
+          ${BINARY_PATH} version # Print version to confirm
+
+
+      # - name: Download and Setup V2Ray Binary # <--- Alternative: Download V2Ray
+      #   id: setup_binary # Use the same ID if you switch
+      #   run: |
+      #     V2RAY_VERSION="5.14.1" # <<--- Use a specific V2Ray version
+      #     ASSET_NAME="v2ray-linux-64.zip"
+      #     DOWNLOAD_URL="https://github.com/v2ray/v2ray-core/releases/download/v${V2RAY_VERSION}/${ASSET_NAME}"
+      #     DEST_DIR="./v2ray-binary"
+      #     BINARY_PATH="${DEST_DIR}/v2ray"
+
+      #     echo "Downloading V2Ray from ${DOWNLOAD_URL}"
+      #     curl -L ${DOWNLOAD_URL} -o v2ray.zip
+      #     mkdir -p ${DEST_DIR}
+      #     unzip -o v2ray.zip -d ${DEST_DIR}
+
+      #     if [ ! -f "${BINARY_PATH}" ]; then
+      #       echo "Error: V2Ray binary not found at ${BINARY_PATH} after extraction."
+      #       exit 1
+      #     fi
+
+      #     chmod +x ${BINARY_PATH}
+      #     echo "V2RAY_BINARY_PATH=${BINARY_PATH}" >> $GITHUB_ENV
+      #     echo "V2Ray binary setup complete."
+      #     ${BINARY_PATH} version
+
+
+      # 5. Run V2Ray Key Tester Script
+      - name: Run V2Ray Key Tester Script
+        # This step depends on the binary setup step
+        needs: setup_binary
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }} # Provided by GitHub by default
+          # Pass the subscription URLs secret as an environment variable to the script
+          SUBSCRIPTION_URLS: ${{ secrets.SUBSCRIPTION_URLS }}
+          # V2RAY_BINARY_PATH is set in the previous 'setup_binary' step via $GITHUB_ENV
+          # OUTPUT_DIR, WORKING_KEYS_FILE, CLASH_CONFIG_FILE are defined in the Python script
+          # You can optionally set them as env vars here if you want to override defaults
+
+        run: |
+          # Check if the binary path was set by the previous step
+          if [ -z "${{ env.V2RAY_BINARY_PATH }}" ]; then
+             echo "Error: V2RAY_BINARY_PATH environment variable is not set."
+             echo "This indicates the binary download step failed."
+             exit 1
+          fi
+
+          echo "Using V2Ray/Xray binary: ${{ env.V2RAY_BINARY_PATH }}"
+
+          # Ensure output directory exists before the script runs
+          OUTPUT_DIR_PYTHON=$(python -c "import test_v2ray_keys; print(test_v2ray_keys.OUTPUT_DIR)")
+          mkdir -p ${OUTPUT_DIR_PYTHON}
+
+          # Run the Python script
+          # The script will create working_subscription.txt and clash_config.yaml
+          python test_v2ray_keys.py
+
+          echo "Testing Complete."
+
+          # Check if the primary output file (working_subscription.txt) was created and is not empty
+          WORKING_KEYS_FILE_PYTHON=$(python -c "import test_v2ray_keys; print(test_v2ray_keys.WORKING_KEYS_FILE)")
+          if [ -s "${WORKING_KEYS_FILE_PYTHON}" ]; then
+            echo "Found working keys in ${WORKING_KEYS_FILE_PYTHON}."
+          else
+            echo "No working keys found or file ${WORKING_KEYS_FILE_PYTHON} is empty."
+            # Optionally exit with a non-zero code if finding working keys is mandatory
+            # exit 1
+          fi
+
+
+      # 6. Commit and Push Subscription Files to Repo
+      - name: Commit and Push Subscription Files to Repo
+        # Only run if the testing step completed successfully
+        needs: test-and-upload
+        # Use a condition to skip if no changes
+        # The script's output directory path needs to be consistent
+        env:
+          OUTPUT_DIR_PYTHON=$(python -c "import test_v2ray_keys; print(test_v2ray_keys.OUTPUT_DIR)")
+
+        run: |
+          # Check if the output directory exists
+          if [ ! -d "${OUTPUT_DIR_PYTHON}" ]; then
+            echo "Output directory '${OUTPUT_DIR_PYTHON}' not found. Skipping Git commit."
+            exit 0 # Exit this step gracefully
+          fi
+
+          git config --global user.name 'github-actions[bot]'
+          git config --global user.email 'github-actions[bot]@users.noreply.github.com'
+
+          # Add all files in the output directory (should include working_subscription.txt and clash_config.yaml)
+          git add "${OUTPUT_DIR_PYTHON}"/*
+
+          # Check if there are any staged changes before committing
+          if git diff --cached --quiet; then
+            echo "No changes detected in '${OUTPUT_DIR_PYTHON}/'. Skipping commit."
+          else
+            # Commit changes
+            git commit -m "Update subscription files and clash config [skip ci]"
+            echo "Changes committed."
+
+            # Push changes
+            # Use PAT token for authentication
+            git remote set-url origin https://x-access-token:${{ secrets.PAT }}@github.com/${{ github.repository }}
+            git push origin HEAD:${{ github.ref_name }} # Push to the current branch
+            echo "Changes pushed to repository."
+          fi
+
+
+      # 7. Install rclone
       - name: Install rclone
+        # Only run if the testing step completed successfully
+        needs: test-and-upload
         run: |
           sudo apt-get update && sudo apt-get install -y rclone
 
-      # 7. Configure rclone for Cloudflare R2
+      # 8. Configure rclone for Cloudflare R2
       - name: Configure rclone for Cloudflare R2
+        # Only run if rclone is installed and testing was successful
+        needs: install-rclone # You might want to define 'install-rclone' as a separate job if needed, otherwise rely on this step succeeding
         env:
+          # Ensure these secrets are set in repo settings
           R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
-          R2_ENDPOINT: ${{ secrets.R2_ENDPOINT }}
+          R2_ENDPOINT: ${{ secrets.R2_ENDPOINT }} # e.g. https://<ACCOUNT_ID>.r2.cloudflarestorage.com
         run: |
-          rclone config create R2 s3 \
-            provider=Cloudflare \
-            access_key_id=$R2_ACCESS_KEY_ID \
-            secret_access_key=$R2_SECRET_ACCESS_KEY \
-            endpoint=$R2_ENDPOINT \
-            acl=public-read
+          # Create rclone config file in runner's home directory
+          mkdir -p ~/.config/rclone
+          cat << EOF > ~/.config/rclone/rclone.conf
+          [R2]
+          type = s3
+          provider = Cloudflare
+          access_key_id = ${R2_ACCESS_KEY_ID}
+          secret_access_key = ${R2_SECRET_ACCESS_KEY}
+          endpoint = ${R2_ENDPOINT}
+          acl = public-read
+          # Optional: server_side_encryption = AES256
+          EOF
+          echo "Rclone config created."
+          rclone listremotes # List remotes to verify config (optional)
 
-      # 8. Sync working key files to R2 Bucket
-      - name: Sync working key files to R2 Bucket
+
+      # 9. Sync working key files and Clash config to R2 Bucket
+      - name: Sync files to R2 Bucket
+        # Only run if R2 config was successful
+        needs: configure-rclone # You might want to define 'configure-rclone' as a separate job if needed
         env:
-          R2_BUCKET_NAME: ${{ secrets.R2_BUCKET_NAME }}
+          R2_BUCKET_NAME: ${{ secrets.R2_BUCKET_NAME }} # Ensure this secret is set
+          # Get the output directory path from the Python script
+          OUTPUT_DIR_PYTHON=$(python -c "import test_v2ray_keys; print(test_v2ray_keys.OUTPUT_DIR)")
+
         run: |
-          SYNC_DIR="subscription"
-          WORKING_KEYS="working_subscription.txt"
-          if [ -d "./${SYNC_DIR}" ]; then
-            rclone sync ./${SYNC_DIR} R2:${R2_BUCKET_NAME}/ --progress --verbose > rclone.log 2>&1
-          fi
-          if [ -f "./${WORKING_KEYS}" ]; then
-            rclone copy ./${WORKING_KEYS} R2:${R2_BUCKET_NAME}/ --progress --verbose >> rclone.log 2>&1
+          # Check if the output directory exists before syncing
+          if [ ! -d "${OUTPUT_DIR_PYTHON}" ]; then
+            echo "Output directory '${OUTPUT_DIR_PYTHON}' not found. Skipping R2 sync."
+            exit 0 # Exit this step gracefully
           fi
 
-      # 9. Verify Rclone Log (Optional)
-      - name: Verify Rclone Log
-        run: |
-          if [ -f "rclone.log" ]; then
-            echo "Rclone log file exists."
-          else
-            echo "Rclone log file does not exist!"
-          fi
+          echo "Syncing contents of ${OUTPUT_DIR_PYTHON} to R2:${R2_BUCKET_NAME}/"
+          # Use sync to make the R2 bucket directory mirror the local output directory
+          # Add --create-empty-src-dirs if you want empty directories to be created (usually not needed)
+          rclone sync "${OUTPUT_DIR_PYTHON}" "R2:${R2_BUCKET_NAME}/" \
+            --progress --verbose \
+            --retries 3 --low-level-retries 5 --stats 1m \
+            > rclone_sync_log.txt 2>&1 || true # Log output, allow failure with || true if you don't want sync errors to fail the job
 
-      # 10. Upload Rclone Logs for Debugging (Optional)
-      - name: Upload Rclone Logs
+          echo "Rclone sync command finished."
+
+      # 10. Upload Rclone Sync Log (Optional)
+      - name: Upload Rclone Sync Log
         uses: actions/upload-artifact@v4.6.2
         with:
-          name: rclone-logs
-          path: rclone.log
-          if-no-files-found: warn
+          name: rclone-sync-log-${{ github.run_id }} # Add run ID for uniqueness
+          path: rclone_sync_log.txt
+          if-no-files-found: ignore # Don't fail if the log file wasn't created
+
 
       # 11. Clean up output directory
+      # Use 'always()' to ensure this step runs even if previous steps fail
       - name: Clean up output directory
+        if: always()
+        env:
+          OUTPUT_DIR_PYTHON=$(python -c "import test_v2ray_keys; print(test_v2ray_keys.OUTPUT_DIR)")
         run: |
-          CLEANUP_DIR="subscription"
-          if [ -d "./${CLEANUP_DIR}" ]; then
-            rm -rf ./${CLEANUP_DIR}
+          if [ -d "${OUTPUT_DIR_PYTHON}" ]; then
+            echo "Cleaning up directory ${OUTPUT_DIR_PYTHON}"
+            rm -rf "${OUTPUT_DIR_PYTHON}"
           fi
+          # Also clean up binary directory
+          if [ -d "./xray-binary" ]; then rm -rf ./xray-binary; fi
+          if [ -d "./v2ray-binary" ]; then rm -rf ./v2ray-binary; fi
+
