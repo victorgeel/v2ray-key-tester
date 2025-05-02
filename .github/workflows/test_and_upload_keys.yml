@@ -1,4 +1,4 @@
-# .github/workflows/test-keys.yml
+# .github/workflows/test_and_upload_keys.yml
 name: Test V2Ray Keys and Upload to R2 & GitHub
 
 on:
@@ -16,10 +16,8 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
-          # Use PAT for push access. Ensure this secret is set in repo settings.
-          # The user needs write permission on the repo.
-          token: ${{ secrets.PAT }}
-          persist-credentials: false # Don't persist default creds
+          token: ${{ secrets.PAT }} # Ensure this secret is set in repo settings.
+          persist-credentials: false
           fetch-depth: 0 # Fetch all history to check for changes before committing
 
       # 2. Set up Python
@@ -59,7 +57,7 @@ jobs:
 
           chmod +x ${BINARY_PATH} # Make it executable
 
-          # Set the binary path as an environment variable for the Python script
+          # Set the binary path as an environment variable for the Python script and subsequent steps
           echo "V2RAY_BINARY_PATH=${BINARY_PATH}" >> $GITHUB_ENV
 
           echo "Xray binary setup complete."
@@ -96,13 +94,10 @@ jobs:
         # This step depends on the binary setup step
         needs: setup_binary
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }} # Provided by GitHub by default
-          # Pass the subscription URLs secret as an environment variable to the script
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Pass the subscription URLs secret as an environment variable
           SUBSCRIPTION_URLS: ${{ secrets.SUBSCRIPTION_URLS }}
-          # V2RAY_BINARY_PATH is set in the previous 'setup_binary' step via $GITHUB_ENV
-          # OUTPUT_DIR, WORKING_KEYS_FILE, CLASH_CONFIG_FILE are defined in the Python script
-          # You can optionally set them as env vars here if you want to override defaults
-
+          # V2RAY_BINARY_PATH is already set in the previous step via $GITHUB_ENV
         run: |
           # Check if the binary path was set by the previous step
           if [ -z "${{ env.V2RAY_BINARY_PATH }}" ]; then
@@ -114,58 +109,74 @@ jobs:
           echo "Using V2Ray/Xray binary: ${{ env.V2RAY_BINARY_PATH }}"
 
           # Ensure output directory exists before the script runs
-          OUTPUT_DIR_PYTHON=$(python -c "import test_v2ray_keys; print(test_v2ray_keys.OUTPUT_DIR)")
-          mkdir -p ${OUTPUT_DIR_PYTHON}
+          # Get OUTPUT_DIR from python script and create it
+          # We will set this as an env var in the NEXT step
+          OUTPUT_DIR_FROM_SCRIPT=$(python -c "import test_v2ray_keys; print(test_v2ray_keys.OUTPUT_DIR)")
+          mkdir -p ${OUTPUT_DIR_FROM_SCRIPT}
+          echo "Output directory from script: ${OUTPUT_DIR_FROM_SCRIPT}" # Log the directory
 
           # Run the Python script
-          # The script will create working_subscription.txt and clash_config.yaml
+          # The script will create working_subscription.txt and clash_config.yaml inside the output directory
           python test_v2ray_keys.py
 
-          echo "Testing Complete."
+          echo "Testing Complete. Output files generated in ${OUTPUT_DIR_FROM_SCRIPT}."
 
           # Check if the primary output file (working_subscription.txt) was created and is not empty
-          WORKING_KEYS_FILE_PYTHON=$(python -c "import test_v2ray_keys; print(test_v2ray_keys.WORKING_KEYS_FILE)")
-          if [ -s "${WORKING_KEYS_FILE_PYTHON}" ]; then
-            echo "Found working keys in ${WORKING_KEYS_FILE_PYTHON}."
+          WORKING_KEYS_FILE_FULL_PATH=${OUTPUT_DIR_FROM_SCRIPT}/working_subscription.txt # Construct full path
+          if [ -s "${WORKING_KEYS_FILE_FULL_PATH}" ]; then
+            echo "Found working keys."
           else
-            echo "No working keys found or file ${WORKING_KEYS_FILE_PYTHON} is empty."
-            # Optionally exit with a non-zero code if finding working keys is mandatory
+            echo "No working keys found or file ${WORKING_KEYS_FILE_FULL_PATH} is empty."
+            # Optionally exit with a non-zero code here if finding working keys is mandatory
             # exit 1
           fi
 
 
+      # --- NEW STEP: Set Output Directory as Environment Variable ---
+      # This step captures the OUTPUT_DIR value from the Python script
+      # and sets it as an environment variable for subsequent steps.
+      - name: Set Output Directory Env Var
+        needs: test-and-upload # Depends on the previous step
+        run: |
+          # Get the OUTPUT_DIR path again from the Python script
+          OUTPUT_DIR_FROM_SCRIPT=$(python -c "import test_v2ray_keys; print(test_v2ray_keys.OUTPUT_DIR)")
+          # Set it as an environment variable for subsequent steps
+          echo "OUTPUT_DIR_PYTHON=${OUTPUT_DIR_FROM_SCRIPT}" >> $GITHUB_ENV
+          echo "Set OUTPUT_DIR_PYTHON env var to: ${{ env.OUTPUT_DIR_PYTHON }}"
+
+
       # 6. Commit and Push Subscription Files to Repo
       - name: Commit and Push Subscription Files to Repo
-        # Only run if the testing step completed successfully
-        needs: test-and-upload
+        # Depends on the 'Set Output Directory Env Var' step
+        needs: Set-Output-Directory-Env-Var
         # Use a condition to skip if no changes
-        # The script's output directory path needs to be consistent
         env:
-          OUTPUT_DIR_PYTHON=$(python -c "import test_v2ray_keys; print(test_v2ray_keys.OUTPUT_DIR)")
+          # OUTPUT_DIR_PYTHON is now available from the environment
+          OUTPUT_DIR_PYTHON: ${{ env.OUTPUT_DIR_PYTHON }}
 
         run: |
-          # Check if the output directory exists
-          if [ ! -d "${OUTPUT_DIR_PYTHON}" ]; then
-            echo "Output directory '${OUTPUT_DIR_PYTHON}' not found. Skipping Git commit."
+          # Check if the output directory exists using the env var
+          if [ -z "${{ env.OUTPUT_DIR_PYTHON }}" ] || [ ! -d "${{ env.OUTPUT_DIR_PYTHON }}" ]; then
+            echo "Output directory '${{ env.OUTPUT_DIR_PYTHON }}' not found or variable not set. Skipping Git commit."
             exit 0 # Exit this step gracefully
           fi
 
           git config --global user.name 'github-actions[bot]'
           git config --global user.email 'github-actions[bot]@users.noreply.github.com'
 
-          # Add all files in the output directory (should include working_subscription.txt and clash_config.yaml)
-          git add "${OUTPUT_DIR_PYTHON}"/*
+          # Add all files in the output directory
+          # Use the environment variable for the directory path
+          git add "${{ env.OUTPUT_DIR_PYTHON }}"/*
 
           # Check if there are any staged changes before committing
           if git diff --cached --quiet; then
-            echo "No changes detected in '${OUTPUT_DIR_PYTHON}/'. Skipping commit."
+            echo "No changes detected in '${{ env.OUTPUT_DIR_PYTHON }}/'. Skipping commit."
           else
             # Commit changes
             git commit -m "Update subscription files and clash config [skip ci]"
             echo "Changes committed."
 
             # Push changes
-            # Use PAT token for authentication
             git remote set-url origin https://x-access-token:${{ secrets.PAT }}@github.com/${{ github.repository }}
             git push origin HEAD:${{ github.ref_name }} # Push to the current branch
             echo "Changes pushed to repository."
@@ -174,17 +185,18 @@ jobs:
 
       # 7. Install rclone
       - name: Install rclone
-        # Only run if the testing step completed successfully
-        needs: test-and-upload
+        # Depends on the 'Set Output Directory Env Var' step
+        needs: Set-Output-Directory-Env-Var # Or needs: test-and-upload depending on dependency chain
+
         run: |
           sudo apt-get update && sudo apt-get install -y rclone
 
       # 8. Configure rclone for Cloudflare R2
       - name: Configure rclone for Cloudflare R2
-        # Only run if rclone is installed and testing was successful
-        needs: install-rclone # You might want to define 'install-rclone' as a separate job if needed, otherwise rely on this step succeeding
+        # Depends on the 'Set Output Directory Env Var' step and rclone install
+        needs: [Set-Output-Directory-Env-Var, install-rclone] # Add install-rclone job/step name if separate
+
         env:
-          # Ensure these secrets are set in repo settings
           R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
           R2_ENDPOINT: ${{ secrets.R2_ENDPOINT }} # e.g. https://<ACCOUNT_ID>.r2.cloudflarestorage.com
@@ -202,29 +214,29 @@ jobs:
           # Optional: server_side_encryption = AES256
           EOF
           echo "Rclone config created."
-          rclone listremotes # List remotes to verify config (optional)
+          # rclone listremotes # List remotes to verify config (optional)
 
 
       # 9. Sync working key files and Clash config to R2 Bucket
       - name: Sync files to R2 Bucket
-        # Only run if R2 config was successful
-        needs: configure-rclone # You might want to define 'configure-rclone' as a separate job if needed
+        # Depends on R2 config and Output Directory Env Var
+        needs: [configure-rclone, Set-Output-Directory-Env-Var]
+
         env:
-          R2_BUCKET_NAME: ${{ secrets.R2_BUCKET_NAME }} # Ensure this secret is set
-          # Get the output directory path from the Python script
-          OUTPUT_DIR_PYTHON=$(python -c "import test_v2ray_keys; print(test_v2ray_keys.OUTPUT_DIR)")
+          R2_BUCKET_NAME: ${{ secrets.R2_BUCKET_NAME }}
+          # OUTPUT_DIR_PYTHON is now available from the environment
+          OUTPUT_DIR_PYTHON: ${{ env.OUTPUT_DIR_PYTHON }}
 
         run: |
-          # Check if the output directory exists before syncing
-          if [ ! -d "${OUTPUT_DIR_PYTHON}" ]; then
-            echo "Output directory '${OUTPUT_DIR_PYTHON}' not found. Skipping R2 sync."
+          # Check if the output directory exists using the env var
+          if [ -z "${{ env.OUTPUT_DIR_PYTHON }}" ] || [ ! -d "${{ env.OUTPUT_DIR_PYTHON }}" ]; then
+            echo "Output directory '${{ env.OUTPUT_DIR_PYTHON }}' not found or variable not set. Skipping R2 sync."
             exit 0 # Exit this step gracefully
           fi
 
-          echo "Syncing contents of ${OUTPUT_DIR_PYTHON} to R2:${R2_BUCKET_NAME}/"
+          echo "Syncing contents of ${{ env.OUTPUT_DIR_PYTHON }} to R2:${R2_BUCKET_NAME}/"
           # Use sync to make the R2 bucket directory mirror the local output directory
-          # Add --create-empty-src-dirs if you want empty directories to be created (usually not needed)
-          rclone sync "${OUTPUT_DIR_PYTHON}" "R2:${R2_BUCKET_NAME}/" \
+          rclone sync "${{ env.OUTPUT_DIR_PYTHON }}" "R2:${R2_BUCKET_NAME}/" \
             --progress --verbose \
             --retries 3 --low-level-retries 5 --stats 1m \
             > rclone_sync_log.txt 2>&1 || true # Log output, allow failure with || true if you don't want sync errors to fail the job
@@ -235,23 +247,27 @@ jobs:
       - name: Upload Rclone Sync Log
         uses: actions/upload-artifact@v4.6.2
         with:
-          name: rclone-sync-log-${{ github.run_id }} # Add run ID for uniqueness
+          name: rclone-sync-log-${{ github.run_id }}
           path: rclone_sync_log.txt
-          if-no-files-found: ignore # Don't fail if the log file wasn't created
-
+          if-no-files-found: ignore
 
       # 11. Clean up output directory
       # Use 'always()' to ensure this step runs even if previous steps fail
       - name: Clean up output directory
         if: always()
         env:
-          OUTPUT_DIR_PYTHON=$(python -c "import test_v2ray_keys; print(test_v2ray_keys.OUTPUT_DIR)")
+           # OUTPUT_DIR_PYTHON is now available from the environment (if Set Output Directory Env Var step ran)
+           OUTPUT_DIR_PYTHON: ${{ env.OUTPUT_DIR_PYTHON }}
         run: |
-          if [ -d "${OUTPUT_DIR_PYTHON}" ]; then
-            echo "Cleaning up directory ${OUTPUT_DIR_PYTHON}"
-            rm -rf "${OUTPUT_DIR_PYTHON}"
+          # Check if the env var is set and the directory exists before cleaning
+          if [ -n "${{ env.OUTPUT_DIR_PYTHON }}" ] && [ -d "${{ env.OUTPUT_DIR_PYTHON }}" ]; then
+            echo "Cleaning up directory ${{ env.OUTPUT_DIR_PYTHON }}"
+            rm -rf "${{ env.OUTPUT_DIR_PYTHON }}"
+          else
+             echo "Output directory variable not set or directory not found. Skipping cleanup."
           fi
-          # Also clean up binary directory
-          if [ -d "./xray-binary" ]; then rm -rf ./xray-binary; fi
-          if [ -d "./v2ray-binary" ]; then rm -rf ./v2ray-binary; fi
+
+          # Also clean up binary directory (assuming they are in known locations relative to workspace root)
+          if [ -d "./xray-binary" ]; then echo "Cleaning up ./xray-binary"; rm -rf ./xray-binary; fi
+          if [ -d "./v2ray-binary" ]; then echo "Cleaning up ./v2ray-binary"; rm -rf ./v2ray-binary; fi
 
