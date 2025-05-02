@@ -1,0 +1,50 @@
+{
+  "log": {
+    "loglevel": "warning" // Set log level for V2Ray binary output
+  },
+  "inbounds": [
+    {
+      "listen": "127.0.0.1",
+      "port": 1080, // Must match PROXY_LISTEN_PORT in Python script
+      "protocol": "socks", // Must match PROXY_PROTOCOL in Python script
+      "settings": {
+        "auth": "noauth"
+      },
+      "tag": "proxyin" // Must match the inboundTag in routing rule
+    }
+     // You could add an http inbound too if needed
+     // {
+     //   "listen": "127.0.0.1",
+     //   "port": 1081,
+     //   "protocol": "http",
+     //   "tag": "proxyin_http" // Use a different tag if needed
+     // }
+  ],
+  "outbounds": [
+    // The Python script will insert the test outbound config here as the first element
+    {"protocol": "freedom", "settings": {}, "tag": "direct"},
+    {"protocol": "blackhole", "settings": {}, "tag": "block"}
+  ],
+  "routing": {
+    "rules": [
+      {
+        "type": "field",
+        "inboundTag": ["proxyin"], // Match the inbound tag
+        "outboundTag": "test_proxy_out" // Must match the tag assigned in Python script
+      },
+       // Add other routing rules here if you want V2Ray to handle them during test
+       // For simple testing, just the rule above is usually enough
+      {
+        "type": "field",
+        "ip": ["geoip:private"],
+        "outboundTag": "direct"
+      },
+      {
+        "type": "field",
+        "domain": ["geosite:private"],
+        "outboundTag": "direct"
+      }
+    ]
+  }
+  // Add other sections like dns, api, policy etc. if your V2Ray setup requires them
+}
